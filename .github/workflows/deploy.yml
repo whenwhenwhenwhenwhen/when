@@ -30,9 +30,15 @@ jobs:
         env:
           CONVEX_SELF_HOSTED_URL: ${{ secrets.CONVEX_SELF_HOSTED_URL }}
           CONVEX_SELF_HOSTED_ADMIN_KEY: ${{ secrets.CONVEX_SELF_HOSTED_ADMIN_KEY }}
+          AUTH_GOOGLE_ID: ${{ secrets.AUTH_GOOGLE_ID }}
+          AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL }}
         run: |
           test -n "$CONVEX_SELF_HOSTED_URL"
           test -n "$CONVEX_SELF_HOSTED_ADMIN_KEY"
+          test -n "$AUTH_GOOGLE_ID"
+          test -n "$AUTH_GOOGLE_SECRET"
+          test -n "$SITE_URL"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -50,6 +56,39 @@ jobs:
 
       - name: Build frontend
         run: pnpm run build
+
+      - name: Set Convex environment variables
+        env:
+          CONVEX_SELF_HOSTED_URL: ${{ secrets.CONVEX_SELF_HOSTED_URL }}
+          CONVEX_SELF_HOSTED_ADMIN_KEY: ${{ secrets.CONVEX_SELF_HOSTED_ADMIN_KEY }}
+          AUTH_GOOGLE_ID: ${{ secrets.AUTH_GOOGLE_ID }}
+          AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL }}
+          DISCORD_APP_ID: ${{ secrets.DISCORD_APP_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
+          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
+          DISCORD_DEBOUNCE_MS: ${{ secrets.DISCORD_DEBOUNCE_MS }}
+        run: |
+          pnpm exec convex env set AUTH_GOOGLE_ID "$AUTH_GOOGLE_ID"
+          pnpm exec convex env set AUTH_GOOGLE_SECRET "$AUTH_GOOGLE_SECRET"
+          pnpm exec convex env set SITE_URL "$SITE_URL"
+
+          if [ -n "$DISCORD_APP_ID" ]; then
+            pnpm exec convex env set DISCORD_APP_ID "$DISCORD_APP_ID"
+          fi
+          if [ -n "$DISCORD_BOT_TOKEN" ]; then
+            pnpm exec convex env set DISCORD_BOT_TOKEN "$DISCORD_BOT_TOKEN"
+          fi
+          if [ -n "$DISCORD_PUBLIC_KEY" ]; then
+            pnpm exec convex env set DISCORD_PUBLIC_KEY "$DISCORD_PUBLIC_KEY"
+          fi
+          if [ -n "$DISCORD_CLIENT_SECRET" ]; then
+            pnpm exec convex env set DISCORD_CLIENT_SECRET "$DISCORD_CLIENT_SECRET"
+          fi
+          if [ -n "$DISCORD_DEBOUNCE_MS" ]; then
+            pnpm exec convex env set DISCORD_DEBOUNCE_MS "$DISCORD_DEBOUNCE_MS"
+          fi
 
       - name: Deploy Convex
         env:
