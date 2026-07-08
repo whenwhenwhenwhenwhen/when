@@ -14,8 +14,8 @@ interface Props {
 const DISCORD_INSTALL_NONCE_KEY = "whengames_discord_install_session";
 
 // View Channel + Send Messages + Embed Links + Read Message History
-//   0x400  +    0x800     +   0x4000     +  0x10000        = 0x14C00 = 84480
-const DISCORD_BOT_PERMISSIONS = "84480";
+//   0x400  +    0x800     +   0x4000     +  0x10000        = 0x14C00 = 84992
+const DISCORD_BOT_PERMISSIONS = "84992";
 
 export function DiscordLinkButton({
   scheduleId,
