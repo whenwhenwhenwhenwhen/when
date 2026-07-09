@@ -2,7 +2,7 @@
  * Mock replacement for "convex/react".
  *
  * Vite aliases "convex/react" → this file in design mode. Components that
- * import { useQuery, useMutation } from "convex/react" transparently get
+ * import { useQuery, useMutation, useAction } from "convex/react" transparently get
  * these mock implementations instead.
  *
  * Reactivity: every useQuery subscribes to a global version counter via
@@ -97,6 +97,30 @@ export function useMutation(functionRef: any): (args?: any) => Promise<any> {
         return;
       }
       return handler(args ?? {});
+    },
+    [fnName],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// useAction
+// ---------------------------------------------------------------------------
+
+/**
+ * Mock useAction — returns an async no-op for action-backed flows.
+ *
+ * Design mode does not model external services such as Google Calendar or
+ * Discord, but components still need the hook export so they can render.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function useAction(functionRef: any): (args?: any) => Promise<any> {
+  const fnName = getFnName(functionRef);
+
+  return useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+    async (_args?: any) => {
+      console.warn(`[mock] No action handler for "${fnName}" — no-op`);
+      return undefined;
     },
     [fnName],
   );
