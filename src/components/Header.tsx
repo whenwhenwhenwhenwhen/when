@@ -6,6 +6,7 @@ import { useGoogleAuth } from "../lib/googleAuth";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AnimatedTitle } from "./AnimatedTitle";
+import styles from "../styles/app.module.css";
 
 const CALENDAR_REOPEN_SETTINGS_KEY =
   "whengames_reopen_settings_after_calendar_oauth";
@@ -74,29 +75,29 @@ export function Header() {
 
   return (
     <>
-      <header className="bg-white border-b border-gray-200 shadow-sm dark:bg-slate-800 dark:border-slate-700">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2 no-underline">
+      <header className={styles.header}>
+        <div className={styles.headerInner}>
+          <a href="/" className={styles.brandLink}>
             <AnimatedTitle />
           </a>
 
-          <div className="flex items-center gap-3">
+          <div className={styles.inlineCluster}>
             {isLoading ? (
-              <span className="text-sm text-gray-400 dark:text-slate-500">Loading...</span>
+              <span className={styles.faintText}>Loading...</span>
             ) : isAuthenticated || profile?.isAuthenticated ? (
               <>
-                <div className="flex items-center gap-2">
+                <div className={styles.userInfo}>
                   {(profile?.ssoImage || profile?.profileImageUrl) ? (
                     <img
                       src={profile.ssoImage || profile.profileImageUrl}
                       alt=""
-                      className="w-7 h-7 rounded-full"
+                      className={styles.avatarSm}
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = "none";
                       }}
                     />
                   ) : null}
-                  <span className="text-sm text-gray-700 dark:text-slate-300">
+                  <span className={styles.bodyText}>
                     {profile?.displayName ||
                       profile?.ssoName ||
                       profile?.ssoEmail ||
@@ -105,13 +106,13 @@ export function Header() {
                 </div>
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700"
+                  className={styles.navButton}
                 >
                   Settings
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700"
+                  className={styles.navButton}
                 >
                   Logout
                 </button>
@@ -119,20 +120,20 @@ export function Header() {
             ) : (
               <>
                 {hasInteracted && profile && (
-                  <span className="text-sm text-gray-500 dark:text-slate-400">
+                  <span className={styles.subtleText}>
                     {profile.displayName}
                   </span>
                 )}
                 <button
                   onClick={handleLogin}
-                  className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 transition-colors"
+                  className={styles.buttonPrimarySmall}
                 >
                   {hasInteracted ? "Link Login" : "Login"}
                 </button>
                 {profile && (
                   <button
                     onClick={() => setShowSettings(true)}
-                    className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700"
+                    className={styles.navButton}
                   >
                     Settings
                   </button>
@@ -143,7 +144,7 @@ export function Header() {
                       clearAnonymousUser();
                       window.location.reload();
                     }}
-                    className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700"
+                    className={styles.navButton}
                   >
                     Logout
                   </button>

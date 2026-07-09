@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { useNavigate } from "react-router";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 interface Schedule {
   _id: Id<"schedules">;
@@ -91,28 +93,28 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className={styles.modalBackdrop}
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6 relative dark:bg-slate-800"
+        className={styles.modalPanelMd}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>
             Edit Schedule
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none dark:hover:text-slate-300"
+            className={styles.closeButton}
           >
             &times;
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className={styles.formStack}>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+            <label className={styles.fieldLabel}>
               Title
             </label>
             <input
@@ -120,32 +122,35 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g., Friday Game Night"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-400"
+              className={styles.control}
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+            <label className={styles.fieldLabel}>
               Description{" "}
-              <span className="text-gray-400 font-normal dark:text-slate-500">(optional)</span>
+              <span className={styles.optionalText}>(optional)</span>
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What's this schedule for?"
               rows={2}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-400"
+              className={styles.textarea}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+            <label className={styles.fieldLabel}>
               Type
             </label>
-            <div className="flex gap-3">
+            <div className={styles.radioGroup}>
               <label
-                className={`flex items-center gap-2 ${isRecurringOriginal ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                className={cx(
+                  styles.radioOption,
+                  isRecurringOriginal && styles.disabledOption,
+                )}
               >
                 <input
                   type="radio"
@@ -154,24 +159,24 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
                   checked={type === "one-off"}
                   onChange={() => setType("one-off")}
                   disabled={isRecurringOriginal}
-                  className="text-blue-600"
+                  className={styles.radio}
                 />
-                <span className="text-sm dark:text-slate-300">One-off</span>
+                <span>One-off</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className={styles.radioOption}>
                 <input
                   type="radio"
                   name="type"
                   value="recurring"
                   checked={type === "recurring"}
                   onChange={() => setType("recurring")}
-                  className="text-blue-600"
+                  className={styles.radio}
                 />
-                <span className="text-sm dark:text-slate-300">Recurring (weekly)</span>
+                <span>Recurring (weekly)</span>
               </label>
             </div>
             {isRecurringOriginal && (
-              <p className="text-xs text-gray-400 mt-1 dark:text-slate-500">
+              <p className={styles.faintText}>
                 Recurring schedules cannot be changed to one-off.
               </p>
             )}
@@ -179,11 +184,11 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
 
           {/* Type change warning */}
           {isTypeChanged && !isRecurringOriginal && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 dark:bg-amber-900/30 dark:border-amber-700">
-              <p className="text-sm text-amber-800 font-medium mb-1 dark:text-amber-300">
+            <div className={cx(styles.panel, styles.panelWarning)}>
+              <p className={styles.warningText}>
                 Converting to recurring will:
               </p>
-              <ul className="text-xs text-amber-700 list-disc list-inside space-y-0.5 dark:text-amber-400">
+              <ul className={styles.faintText}>
                 <li>
                   Convert all nominations from date-specific to weekly
                   day-of-week (e.g. &ldquo;April 24&rdquo; becomes
@@ -198,7 +203,7 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
                 </li>
                 <li>Remove the date range restriction</li>
               </ul>
-              <p className="text-xs text-amber-600 mt-2 dark:text-amber-500">
+              <p className={styles.faintText}>
                 This cannot be undone, but all existing data will be preserved
                 in the new recurring format.
               </p>
@@ -206,21 +211,21 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
           )}
 
           {type === "one-off" && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className={styles.gridTwo}>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+                <label className={styles.fieldLabel}>
                   Start Date
                 </label>
                 <input
                   type="date"
                   value={dateStart}
                   onChange={(e) => setDateStart(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  className={styles.control}
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+                <label className={styles.fieldLabel}>
                   End Date
                 </label>
                 <input
@@ -228,7 +233,7 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
                   value={dateEnd}
                   onChange={(e) => setDateEnd(e.target.value)}
                   min={dateStart}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  className={styles.control}
                   required
                 />
               </div>
@@ -237,37 +242,37 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
 
           {type === "recurring" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+              <label className={styles.fieldLabel}>
                 Start Date{" "}
-                <span className="text-gray-400 font-normal dark:text-slate-500">(optional)</span>
+                <span className={styles.optionalText}>(optional)</span>
               </label>
               <input
                 type="date"
                 value={recurringStartDate}
                 onChange={(e) => setRecurringStartDate(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                className={styles.control}
               />
             </div>
           )}
 
           <div>
-            <div className="flex items-center gap-2">
+            <div className={styles.checkboxRow}>
               <input
                 type="checkbox"
                 id="edit-is-private"
                 checked={isPrivate}
                 onChange={(e) => setIsPrivate(e.target.checked)}
-                className="rounded text-blue-600"
+                className={styles.checkbox}
               />
               <label
                 htmlFor="edit-is-private"
-                className="text-sm text-gray-700 dark:text-slate-300"
+                className={styles.checkboxOption}
               >
                 Unlisted schedule
               </label>
             </div>
             {isPrivate && (
-              <p className="text-xs text-gray-500 mt-1 ml-6 dark:text-slate-400">
+              <p className={styles.helperText}>
                 Unlisted schedules are hidden from the public list but can still
                 be viewed by anyone with the link.
               </p>
@@ -276,34 +281,32 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
 
           {/* Blocked users section */}
           {blockedProfiles && blockedProfiles.length > 0 && (
-            <div className="border-t pt-4 dark:border-slate-700">
-              <h3 className="text-sm font-medium text-gray-700 mb-2 dark:text-slate-300">
+            <div className={styles.dividerTop}>
+              <h3 className={styles.sectionTitle}>
                 Blocked Users
               </h3>
-              <p className="text-xs text-gray-500 mb-3 dark:text-slate-400">
+              <p className={styles.smallText}>
                 Blocked users cannot enter availability for this schedule. Unblock to allow them to participate again.
               </p>
-              <div className="space-y-2">
+              <div className={styles.listStack}>
                 {blockedProfiles.map((blocked) => (
                   <div
                     key={blocked._id}
-                    className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 dark:bg-slate-700/50"
+                    className={cx(styles.panel, styles.panelMuted, styles.itemHeader)}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className={styles.inlineClusterTight}>
                       {blocked.profileImageUrl ? (
                         <img
                           src={blocked.profileImageUrl}
                           alt=""
-                          className="w-5 h-5 rounded-full"
+                          className={styles.avatarXs}
                         />
                       ) : (
-                        <div className="w-5 h-5 rounded-full bg-gray-200 dark:bg-slate-600 flex items-center justify-center">
-                          <span className="text-[10px] text-gray-500 dark:text-slate-400">
-                            {blocked.displayName.charAt(0).toUpperCase()}
-                          </span>
+                        <div className={styles.avatarFallback}>
+                          {blocked.displayName.charAt(0).toUpperCase()}
                         </div>
                       )}
-                      <span className="text-xs text-gray-700 dark:text-slate-300">
+                      <span className={styles.smallText}>
                         {blocked.displayName}
                       </span>
                     </div>
@@ -316,7 +319,7 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
                           profileId: blocked.profileId,
                         });
                       }}
-                      className="text-xs px-2 py-1 rounded text-blue-600 hover:bg-blue-50 border border-blue-200 hover:border-blue-300 transition-colors dark:text-blue-400 dark:hover:bg-blue-900/40 dark:border-blue-800 dark:hover:border-blue-700"
+                      className={styles.buttonSecondarySmall}
                     >
                       Unblock
                     </button>
@@ -327,27 +330,27 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
           )}
 
           {/* Delete section */}
-          <div className="border-t pt-4 dark:border-slate-700">
+          <div className={styles.dividerTop}>
             {!showDeleteConfirm ? (
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="text-xs px-3 py-1.5 rounded text-red-600 hover:bg-red-50 border border-red-200 hover:border-red-300 transition-colors dark:text-rose-400 dark:hover:bg-rose-900/40 dark:border-rose-800 dark:hover:border-red-700"
+                className={styles.buttonDangerSmall}
               >
                 Delete Schedule
               </button>
             ) : (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 dark:bg-rose-900/40 dark:border-rose-800">
-                <p className="text-sm text-red-700 mb-3 dark:text-rose-400">
+              <div className={cx(styles.panel, styles.panelDanger)}>
+                <p className={styles.errorText}>
                   Are you sure? This will permanently delete &ldquo;
                   {schedule.title}&rdquo; and all nominations, settings, and
                   linked availabilities. This cannot be undone.
                 </p>
-                <div className="flex gap-2">
+                <div className={styles.fieldRow}>
                   <button
                     type="button"
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="flex-1 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors dark:text-slate-400 dark:hover:bg-slate-700"
+                    className={cx(styles.buttonSecondary, styles.flexGrow)}
                     disabled={isSubmitting}
                   >
                     Cancel
@@ -356,7 +359,7 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
                     type="button"
                     onClick={handleDelete}
                     disabled={isSubmitting}
-                    className="flex-1 bg-red-600 text-white px-3 py-2 rounded text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+                    className={cx(styles.buttonDanger, styles.flexGrow)}
                   >
                     {isSubmitting ? "Deleting..." : "Delete Forever"}
                   </button>
@@ -366,18 +369,18 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
           </div>
 
           {/* Footer buttons */}
-          <div className="flex justify-end gap-3 pt-2">
+          <div className={styles.modalFooter}>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-slate-400 dark:hover:text-slate-200"
+              className={styles.buttonPlain}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !title.trim()}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50"
+              className={styles.buttonPrimary}
             >
               {isSubmitting ? "Saving..." : "Save Changes"}
             </button>

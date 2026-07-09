@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Id } from "../../convex/_generated/dataModel";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 interface Participant {
   _id: Id<"userProfiles">;
@@ -72,27 +74,21 @@ export function ParticipantsMenu({
     );
   };
 
-  // Button appearance
-  let buttonClass =
-    "text-xs px-3 py-1.5 rounded font-medium transition-colors flex items-center gap-1 border ";
   let buttonLabel = "Users";
+  let buttonStateClass = "";
 
   if (isEditing && editingParticipant) {
-    buttonClass +=
-      "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-600 dark:hover:bg-amber-800/50";
+    buttonStateClass = styles.menuButtonWarning;
     buttonLabel = editingParticipant.displayName;
-  } else {
-    buttonClass +=
-      "bg-white text-gray-600 border-gray-300 hover:bg-gray-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700";
   }
 
   if (participants.length === 0) return null;
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className={styles.menuWrapper} ref={menuRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={buttonClass}
+        className={cx(styles.menuButton, buttonStateClass)}
         title={
           isEditing
             ? `Editing ${editingParticipant?.displayName}'s availability`
@@ -100,7 +96,7 @@ export function ParticipantsMenu({
         }
       >
         <svg
-          className="w-3.5 h-3.5"
+          className={styles.iconSm}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -114,7 +110,7 @@ export function ParticipantsMenu({
         </svg>
         {buttonLabel}
         <svg
-          className="w-3 h-3"
+          className={styles.iconXs}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -129,10 +125,10 @@ export function ParticipantsMenu({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50 dark:bg-slate-800 dark:border-slate-700">
+        <div className={cx(styles.menuDropdown, styles.menuDropdownWide)}>
           {/* Header */}
-          <div className="px-3 py-2 border-b border-gray-100 dark:border-slate-700">
-            <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
+          <div className={styles.menuHeader}>
+            <span className={styles.menuHeaderText}>
               Participants ({participants.length})
             </span>
           </div>
@@ -145,41 +141,41 @@ export function ParticipantsMenu({
                   onStopEditing();
                   setIsOpen(false);
                 }}
-                className="block w-full text-left px-3 py-2 text-xs text-amber-700 hover:bg-amber-50 transition-colors dark:text-amber-400 dark:hover:bg-amber-900/30"
+                className={cx(styles.menuItem, styles.warningText)}
               >
                 Stop editing {editingParticipant?.displayName}&apos;s availability
               </button>
-              <div className="border-t border-gray-100 dark:border-slate-700" />
+              <div className={styles.menuDivider} />
             </>
           )}
 
           {/* Confirmation dialog */}
           {confirmAction && (
-            <div className="px-3 py-3 border-b border-gray-100 dark:border-slate-700">
-              <p className="text-xs text-gray-700 mb-2 dark:text-slate-300">
+            <div className={cx(styles.panel, styles.panelDanger)}>
+              <p className={styles.smallText}>
                 {confirmAction.type === "delete" ? (
                   <>
                     Remove all of{" "}
-                    <span className="font-medium">
+                    <strong>
                       {confirmAction.displayName}
-                    </span>
+                    </strong>
                     &apos;s availability from this schedule?
                   </>
                 ) : (
                   <>
                     Block{" "}
-                    <span className="font-medium">
+                    <strong>
                       {confirmAction.displayName}
-                    </span>{" "}
+                    </strong>{" "}
                     and remove all their availability? They won&apos;t be able to
                     participate again.
                   </>
                 )}
               </p>
-              <div className="flex gap-2">
+              <div className={styles.fieldRow}>
                 <button
                   onClick={() => setConfirmAction(null)}
-                  className="flex-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors dark:text-slate-400 dark:hover:bg-slate-700"
+                  className={cx(styles.buttonSecondarySmall, styles.flexGrow)}
                 >
                   Cancel
                 </button>
@@ -193,11 +189,12 @@ export function ParticipantsMenu({
                     setConfirmAction(null);
                     setIsOpen(false);
                   }}
-                  className={`flex-1 px-2 py-1 text-xs text-white rounded transition-colors ${
+                  className={cx(
                     confirmAction.type === "block"
-                      ? "bg-red-600 hover:bg-red-700"
-                      : "bg-orange-500 hover:bg-orange-600"
-                  }`}
+                      ? styles.buttonDangerSmall
+                      : styles.buttonWarning,
+                    styles.flexGrow,
+                  )}
                 >
                   {confirmAction.type === "delete" ? "Remove" : "Block"}
                 </button>
@@ -206,7 +203,7 @@ export function ParticipantsMenu({
           )}
 
           {/* Participant list */}
-          <div className="max-h-60 overflow-y-auto py-1">
+          <div className={styles.participantList}>
             {participants.map((participant) => {
               const isLinked = hasLinkedAvailability(participant._id);
               const isCurrentlyEditing = editingProfileId === participant._id;
@@ -215,33 +212,30 @@ export function ParticipantsMenu({
               return (
                 <div
                   key={participant._id}
-                  className={`flex items-center gap-2 px-3 py-1.5 group ${
-                    isCurrentlyEditing
-                      ? "bg-amber-50 dark:bg-amber-900/20"
-                      : "hover:bg-gray-50 dark:hover:bg-slate-700/50"
-                  }`}
+                  className={cx(
+                    styles.participantRow,
+                    isCurrentlyEditing && styles.participantRowActive,
+                  )}
                 >
                   {/* Avatar */}
                   {participant.profileImageUrl ? (
                     <img
                       src={participant.profileImageUrl}
                       alt=""
-                      className="w-5 h-5 rounded-full shrink-0"
+                      className={styles.avatarXs}
                     />
                   ) : (
-                    <div className="w-5 h-5 rounded-full bg-gray-200 dark:bg-slate-600 flex items-center justify-center shrink-0">
-                      <span className="text-[10px] text-gray-500 dark:text-slate-400">
-                        {participant.displayName.charAt(0).toUpperCase()}
-                      </span>
+                    <div className={styles.avatarFallback}>
+                      {participant.displayName.charAt(0).toUpperCase()}
                     </div>
                   )}
 
                   {/* Name */}
-                  <span className="text-xs text-gray-700 flex-1 truncate dark:text-slate-300">
+                  <span className={styles.participantName}>
                     {participant.displayName}
                     {isLinked && (
                       <span
-                        className="ml-1 text-blue-500 dark:text-blue-400"
+                        className={styles.linkedMarker}
                         title="Linked to saved availability"
                       >
                         *
@@ -249,10 +243,10 @@ export function ParticipantsMenu({
                     )}
                     {isLockEditor && (
                       <span
-                        className="ml-1 text-purple-500 dark:text-violet-400"
+                        className={styles.lockMarker}
                         title="Can lock in times"
                       >
-                        <svg className="w-3 h-3 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className={cx(styles.iconXs, styles.iconInline)} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
                       </span>
@@ -260,7 +254,7 @@ export function ParticipantsMenu({
                   </span>
 
                   {/* Action icons */}
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <div className={styles.rowActions}>
                     {/* Promote/Demote lock editor */}
                     <button
                       onClick={() => {
@@ -270,11 +264,11 @@ export function ParticipantsMenu({
                           onPromoteLockEditor(participant._id);
                         }
                       }}
-                      className={`p-1 rounded transition-colors ${
-                        isLockEditor
-                          ? "text-purple-600 hover:text-purple-800 hover:bg-purple-50 dark:text-violet-400 dark:hover:text-violet-300 dark:hover:bg-violet-900/30"
-                          : "text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:text-slate-500 dark:hover:text-violet-400 dark:hover:bg-violet-900/30"
-                      }`}
+                      className={cx(
+                        styles.iconButton,
+                        styles.iconButtonPurple,
+                        isLockEditor && styles.iconButtonPurpleActive,
+                      )}
                       title={
                         isLockEditor
                           ? `Revoke ${participant.displayName}'s lock-in permission`
@@ -282,7 +276,7 @@ export function ParticipantsMenu({
                       }
                     >
                       <svg
-                        className="w-3.5 h-3.5"
+                        className={styles.iconSm}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -318,13 +312,14 @@ export function ParticipantsMenu({
                         }
                       }}
                       disabled={isLinked}
-                      className={`p-1 rounded transition-colors ${
+                      className={cx(
+                        styles.iconButton,
                         isLinked
-                          ? "text-gray-300 cursor-not-allowed dark:text-slate-600"
+                          ? styles.iconButtonDisabled
                           : isCurrentlyEditing
-                            ? "text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/40"
-                            : "text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-500 dark:hover:text-blue-400 dark:hover:bg-blue-900/30"
-                      }`}
+                            ? styles.iconButtonAmberActive
+                            : styles.iconButtonBlue,
+                      )}
                       title={
                         isLinked
                           ? "Cannot edit: user has linked their availability to a saved availability"
@@ -334,7 +329,7 @@ export function ParticipantsMenu({
                       }
                     >
                       <svg
-                        className="w-3.5 h-3.5"
+                        className={styles.iconSm}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -357,11 +352,11 @@ export function ParticipantsMenu({
                           displayName: participant.displayName,
                         })
                       }
-                      className="p-1 rounded text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition-colors dark:text-slate-500 dark:hover:text-orange-400 dark:hover:bg-orange-900/30"
+                      className={cx(styles.iconButton, styles.iconButtonOrange)}
                       title={`Remove ${participant.displayName}'s availability`}
                     >
                       <svg
-                        className="w-3.5 h-3.5"
+                        className={styles.iconSm}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -384,11 +379,11 @@ export function ParticipantsMenu({
                           displayName: participant.displayName,
                         })
                       }
-                      className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors dark:text-slate-500 dark:hover:text-red-400 dark:hover:bg-red-900/30"
+                      className={cx(styles.iconButton, styles.iconButtonDanger)}
                       title={`Block ${participant.displayName}`}
                     >
                       <svg
-                        className="w-3.5 h-3.5"
+                        className={styles.iconSm}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"

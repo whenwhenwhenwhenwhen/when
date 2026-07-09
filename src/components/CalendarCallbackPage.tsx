@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import styles from "../styles/app.module.css";
 
 const CALENDAR_NONCE_KEY = "whengames_calendar_oauth_nonce";
 const CALENDAR_CONNECTED_KEY = "whengames_calendar_just_connected";
@@ -37,8 +38,8 @@ export function CalendarCallbackPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
-      <span className="text-gray-500 dark:text-slate-400">Connecting calendar...</span>
+    <div className={styles.callbackShell}>
+      <span className={styles.mutedText}>Connecting calendar...</span>
     </div>
   );
 }

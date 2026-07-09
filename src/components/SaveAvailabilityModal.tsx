@@ -1,4 +1,5 @@
 import { useState } from "react";
+import styles from "../styles/app.module.css";
 
 interface Props {
   onSave: (name: string) => Promise<void>;
@@ -25,26 +26,26 @@ export function SaveAvailabilityModal({ onSave, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className={styles.modalBackdrop}
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 dark:bg-slate-800"
+        className={styles.modalPanelSm}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>
             Save New Availability
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none dark:hover:text-slate-300"
+            className={styles.closeButton}
           >
             &times;
           </button>
         </div>
 
-        <p className="text-sm text-gray-600 dark:text-slate-400 mb-4">
+        <p className={styles.bodyText}>
           Give your saved availability a name. Your current nominations will be
           saved and linked to this schedule.
         </p>
@@ -54,24 +55,24 @@ export function SaveAvailabilityModal({ onSave, onClose }: Props) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Weekday evenings, Weekend mornings..."
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-400"
+          className={styles.control}
           autoFocus
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSave();
           }}
         />
 
-        <div className="flex justify-end gap-3">
+        <div className={styles.modalFooter}>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-slate-400 dark:hover:text-slate-200"
+            className={styles.buttonPlain}
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !name.trim()}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50"
+            className={styles.buttonPrimary}
           >
             {saving ? "Saving..." : "Save & Link"}
           </button>

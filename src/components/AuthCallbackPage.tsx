@@ -5,6 +5,7 @@ import {
   OAUTH_NONCE_KEY,
   validateGoogleJwt,
 } from "../lib/googleAuth";
+import styles from "../styles/app.module.css";
 
 /**
  * Route component mounted at /auth/callback.
@@ -72,8 +73,8 @@ export function AuthCallbackPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
-      <span className="text-gray-500 dark:text-slate-400">Signing in...</span>
+    <div className={styles.callbackShell}>
+      <span className={styles.mutedText}>Signing in...</span>
     </div>
   );
 }

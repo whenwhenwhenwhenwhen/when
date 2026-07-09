@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import styles from "../styles/app.module.css";
 
 type AnimState = "games" | "hangout" | "movies";
 type Phase = "idle" | "entering" | "displaying" | "exiting";
@@ -240,7 +241,7 @@ export function AnimatedTitle() {
   return (
     <>
       <style>{CSS}</style>
-      <span className="text-xl font-bold text-gray-900 dark:text-slate-100 whitespace-pre">
+      <span className={styles.title}>
         {"When"}
         {!active ? "?" : renderSuffix(active, phase)}
       </span>

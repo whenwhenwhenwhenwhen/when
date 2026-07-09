@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
+import styles from "../styles/app.module.css";
 
 interface SavedAvailability {
   _id: Id<"savedAvailabilities">;
@@ -40,26 +41,26 @@ export function ApplyAvailabilityModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className={styles.modalBackdrop}
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 dark:bg-slate-800"
+        className={styles.modalPanelSm}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>
             Apply Saved Availability
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none dark:hover:text-slate-300"
+            className={styles.closeButton}
           >
             &times;
           </button>
         </div>
 
-        <p className="text-sm text-gray-600 dark:text-slate-400 mb-4">
+        <p className={styles.bodyText}>
           Choose which saved availability to apply to this schedule. Your
           current nominations will be replaced.
         </p>
@@ -69,7 +70,7 @@ export function ApplyAvailabilityModal({
           onChange={(e) =>
             setSelectedId(e.target.value as Id<"savedAvailabilities">)
           }
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          className={styles.control}
         >
           {savedAvailabilities.map((sa) => (
             <option key={sa._id} value={sa._id}>
@@ -79,28 +80,28 @@ export function ApplyAvailabilityModal({
           ))}
         </select>
 
-        <div className="flex items-center justify-between">
+        <div className={styles.modalActionsSplit}>
           <button
             onClick={() => {
               onClose();
               onManage();
             }}
-            className="text-xs text-blue-600 hover:text-blue-700 underline dark:text-blue-400 dark:hover:text-blue-300"
+            className={styles.linkButton}
           >
             Manage saved availabilities
           </button>
 
-          <div className="flex gap-3">
+          <div className={styles.modalActions}>
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-slate-400 dark:hover:text-slate-200"
+              className={styles.buttonPlain}
             >
               Cancel
             </button>
             <button
               onClick={handleApply}
               disabled={applying || !selectedId}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50"
+              className={styles.buttonPrimary}
             >
               {applying ? "Applying..." : "Apply"}
             </button>

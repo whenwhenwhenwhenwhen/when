@@ -5,6 +5,7 @@ import { api } from "../../convex/_generated/api";
 import { Header } from "./Header";
 import { useGoogleAuth } from "../lib/googleAuth";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
+import styles from "../styles/app.module.css";
 
 const DISCORD_INSTALL_NONCE_KEY = "whengames_discord_install_session";
 
@@ -86,7 +87,7 @@ export function DiscordChannelPickerPage() {
   if (error) {
     return (
       <Wrap>
-        <div className="text-sm text-red-600 dark:text-rose-400">
+        <div className={styles.errorText}>
           Discord install failed: {error}
         </div>
         <BackButton scheduleId={session?.scheduleId} />
@@ -97,7 +98,7 @@ export function DiscordChannelPickerPage() {
   if (tokenValidated === false) {
     return (
       <Wrap>
-        <div className="text-sm text-red-600 dark:text-rose-400">
+        <div className={styles.errorText}>
           This link is no longer valid. Start linking again from the schedule
           page.
         </div>
@@ -109,7 +110,7 @@ export function DiscordChannelPickerPage() {
   if (done) {
     return (
       <Wrap>
-        <div className="text-sm text-green-700 dark:text-emerald-400">
+        <div className={styles.successText}>
           Channel linked. Returning to your schedule…
         </div>
       </Wrap>
@@ -119,7 +120,7 @@ export function DiscordChannelPickerPage() {
   if (!session) {
     return (
       <Wrap>
-        <div className="text-sm text-gray-500 dark:text-slate-400">
+        <div className={styles.subtleText}>
           Loading channels…
         </div>
       </Wrap>
@@ -128,29 +129,29 @@ export function DiscordChannelPickerPage() {
 
   return (
     <Wrap>
-      <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">
+      <h2 className={styles.sectionTitle}>
         Pick a channel in {session.guildName ?? "your server"}
       </h2>
-      <p className="text-xs text-gray-500 dark:text-slate-400">
+      <p className={styles.smallText}>
         The bot will send a summary message here. Updates are sent if a locked-in
         time changes or a participant becomes unavailable for a locked slot.
       </p>
       {sortedChannels.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-slate-400">
+        <p className={styles.subtleText}>
           No text channels visible to the bot. Make sure the bot has the View
           Channels permission, then retry.
         </p>
       ) : (
-        <ul className="divide-y divide-gray-200 dark:divide-slate-700 border border-gray-200 dark:border-slate-700 rounded">
+        <ul className={styles.listBox}>
           {sortedChannels.map((ch) => (
-            <li key={ch.id} className="flex items-center justify-between p-2">
-              <span className="text-sm text-gray-800 dark:text-slate-200">
+            <li key={ch.id} className={styles.channelRow}>
+              <span className={styles.channelText}>
                 #{ch.name}
               </span>
               <button
                 onClick={() => handlePick(ch.id, ch.name)}
                 disabled={picking !== null}
-                className="text-xs px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                className={styles.buttonIndigo}
               >
                 {picking === ch.id ? "Linking…" : "Link here"}
               </button>
@@ -165,9 +166,9 @@ export function DiscordChannelPickerPage() {
 
 function Wrap({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+    <div className={styles.appShell}>
       <Header />
-      <main className="max-w-xl mx-auto px-4 py-6 space-y-4">{children}</main>
+      <main className={styles.mainNarrow}>{children}</main>
     </div>
   );
 }
@@ -177,7 +178,7 @@ function BackButton({ scheduleId }: { scheduleId?: string }) {
   return (
     <button
       onClick={() => navigate(scheduleId ? `/schedule/${scheduleId}` : "/")}
-      className="text-xs text-gray-500 underline hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
+      className={styles.linkButton}
     >
       Back to schedule
     </button>

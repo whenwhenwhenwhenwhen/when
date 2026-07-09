@@ -1,4 +1,48 @@
-@import "tailwindcss";
+@import "./styles/tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--color-page);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--color-text);
+  background: var(--color-page);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p,
+ul {
+  margin: 0;
+}
+
+ul {
+  padding-left: 1.25rem;
+}
 
 @keyframes slideIn {
   from {
@@ -8,317 +52,5 @@
   to {
     transform: translateX(0);
     opacity: 1;
-  }
-}
-
-/* Custom theme overrides for Tailwind v4 */
-@theme {
-  --color-can-do: #22c55e;
-  --color-can-do-bg: #dcfce7;
-  --color-cant-do: #ef4444;
-  --color-cant-do-bg: #fee2e2;
-  --color-maybe: #eab308;
-  --color-maybe-bg: #fef9c3;
-  --color-locked: #8b5cf6;
-  --color-locked-bg: #ede9fe;
-  --color-limit: #22c55e;
-}
-
-/* Dark mode theme overrides — slate base, emerald/rose/amber cells, cyan accents */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-can-do-bg: #059669;   /* emerald-600 */
-    --color-cant-do-bg: #e11d48;  /* rose-600 */
-    --color-maybe-bg: #d97706;    /* amber-600 */
-    --color-locked-bg: #7c3aed;   /* violet-600 */
-    color-scheme: dark;
-  }
-}
-
-/* Compact grid styles */
-.grid-cell {
-  @apply border border-gray-200 relative select-none;
-  min-height: 24px;
-  min-width: 80px;
-}
-
-.grid-cell:hover {
-  @apply border-gray-400;
-}
-
-.grid-cell.state-can-do {
-  background-color: var(--color-can-do-bg);
-}
-.grid-cell.state-cant-do {
-  background-color: var(--color-cant-do-bg);
-}
-.grid-cell.state-maybe {
-  background-color: var(--color-maybe-bg);
-}
-
-/* Disallowed cell styling */
-.grid-cell.disallowed {
-  background-color: #f3f4f6;
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 3px,
-    rgba(156, 163, 175, 0.15) 3px,
-    rgba(156, 163, 175, 0.15) 6px
-  );
-}
-
-.grid-cell.disallowed:not(.limit-interactive) {
-  pointer-events: none;
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.grid-cell.disallowed.limit-interactive {
-  opacity: 0.7;
-  cursor: pointer;
-}
-
-.grid-cell.disallowed.limit-interactive:hover {
-  opacity: 0.85;
-  border-color: var(--color-limit);
-}
-
-/* Muted state backgrounds for disallowed cells that have existing nominations */
-.grid-cell.disallowed.state-can-do {
-  background-color: #e0e5e1;
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 3px,
-    rgba(156, 163, 175, 0.12) 3px,
-    rgba(156, 163, 175, 0.12) 6px
-  );
-}
-.grid-cell.disallowed.state-cant-do {
-  background-color: #e5e0e0;
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 3px,
-    rgba(156, 163, 175, 0.12) 3px,
-    rgba(156, 163, 175, 0.12) 6px
-  );
-}
-.grid-cell.disallowed.state-maybe {
-  background-color: #e5e4e0;
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 3px,
-    rgba(156, 163, 175, 0.12) 3px,
-    rgba(156, 163, 175, 0.12) 6px
-  );
-}
-
-/* Calendar-synced cell indicator */
-.grid-cell.calendar-synced::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: 2px;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
-  background-color: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 2v4M18 2v4M3 9h18'/%3E%3Crect x='3' y='4' width='18' height='17' rx='2'/%3E%3Cpath d='M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 2v4M18 2v4M3 9h18'/%3E%3Crect x='3' y='4' width='18' height='17' rx='2'/%3E%3Cpath d='M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01'/%3E%3C/svg%3E") center / contain no-repeat;
-  pointer-events: none;
-}
-
-/* Locked cell styling */
-.grid-cell.locked {
-  @apply ring-2 ring-locked ring-inset;
-}
-
-/* Selection box during drag */
-.selection-box {
-  @apply fixed border-2 border-blue-500 bg-blue-500/10 pointer-events-none z-50;
-}
-
-.selection-box.limit {
-  border-color: var(--color-limit);
-  background-color: rgba(34, 197, 94, 0.1);
-}
-
-.selection-box.lock {
-  border-color: var(--color-locked);
-  background-color: rgba(139, 92, 246, 0.1);
-}
-
-/* Drag selection visual feedback for creator modes (uses box-shadow to avoid ring conflicts) */
-.drag-select-limit {
-  box-shadow: inset 0 0 0 2px var(--color-limit);
-}
-.drag-select-lock {
-  box-shadow: inset 0 0 0 2px var(--color-locked);
-}
-
-/* Current time indicator */
-.current-time-line {
-  @apply absolute left-0 right-0 border-t-2 border-red-500 z-20 pointer-events-none;
-}
-
-/* Current day column highlight */
-.current-day-header {
-  border-left: 2px solid #93c5fd;
-  border-right: 2px solid #93c5fd;
-  border-top: 2px solid #93c5fd;
-}
-
-.grid-cell.current-day-col {
-  border-left: 2px solid #93c5fd;
-  border-right: 2px solid #93c5fd;
-}
-
-.grid-cell.current-day-col-last {
-  border-bottom: 2px solid #93c5fd;
-}
-
-/* Scrollbar styling for the grid */
-.grid-container::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.grid-container::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 rounded;
-}
-
-/* No-interaction cursor for anonymous users without display name */
-.no-interact {
-  @apply opacity-50;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-/* Profile icon groups in cells */
-.profile-group {
-  @apply inline-flex flex-wrap items-center gap-0.5 rounded;
-  padding: 3px 6px;
-}
-.profile-group.can-do {
-  background-color: #86efac;
-}
-.profile-group.cant-do {
-  background-color: #fca5a5;
-}
-.profile-group.maybe {
-  background-color: #fde047;
-}
-
-/* Muted profile groups in disallowed cells */
-.grid-cell.disallowed .profile-group.can-do {
-  background-color: #6ee7b7;
-}
-.grid-cell.disallowed .profile-group.cant-do {
-  background-color: #f8a5a5;
-}
-.grid-cell.disallowed .profile-group.maybe {
-  background-color: #fcd34d;
-}
-
-.profile-icon {
-  @apply w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-bold text-white;
-}
-
-/* ==================== Dark Mode (slate + jewel tones) ==================== */
-@media (prefers-color-scheme: dark) {
-  /* Grid cells — slate borders */
-  .grid-cell {
-    border-color: #334155; /* slate-700 */
-  }
-  .grid-cell:hover {
-    border-color: #64748b; /* slate-500 */
-  }
-
-  /* Disallowed cells — recessed slate */
-  .grid-cell.disallowed {
-    background-color: #0f172a; /* slate-900 */
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 3px,
-      rgba(100, 116, 139, 0.18) 3px,
-      rgba(100, 116, 139, 0.18) 6px
-    );
-  }
-
-  .grid-cell.disallowed.state-can-do {
-    background-color: #0c2e22;
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 3px,
-      rgba(100, 116, 139, 0.14) 3px,
-      rgba(100, 116, 139, 0.14) 6px
-    );
-  }
-  .grid-cell.disallowed.state-cant-do {
-    background-color: #2a0f1a;
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 3px,
-      rgba(100, 116, 139, 0.14) 3px,
-      rgba(100, 116, 139, 0.14) 6px
-    );
-  }
-  .grid-cell.disallowed.state-maybe {
-    background-color: #2a1f0c;
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 3px,
-      rgba(100, 116, 139, 0.14) 3px,
-      rgba(100, 116, 139, 0.14) 6px
-    );
-  }
-
-  /* Current day column — cyan accent */
-  .current-day-header {
-    border-left-color: #22d3ee; /* cyan-400 */
-    border-right-color: #22d3ee;
-    border-top-color: #22d3ee;
-  }
-  .grid-cell.current-day-col {
-    border-left-color: #22d3ee;
-    border-right-color: #22d3ee;
-  }
-  .grid-cell.current-day-col-last {
-    border-bottom-color: #22d3ee;
-  }
-
-  /* Scrollbar — slate tones */
-  .grid-container::-webkit-scrollbar-thumb {
-    background-color: #475569; /* slate-600 */
-  }
-  .grid-container::-webkit-scrollbar-track {
-    background-color: #0f172a; /* slate-900 */
-  }
-
-  .profile-group.can-do {
-    background-color: #10b981;
-  }
-  .profile-group.cant-do {
-    background-color: #ef4444;
-  }
-  .profile-group.maybe {
-    background-color: #f59e0b;
-  }
-
-  /* Muted profile groups in disallowed cells */
-  .grid-cell.disallowed .profile-group.can-do {
-    background-color: #059669;
-  }
-  .grid-cell.disallowed .profile-group.cant-do {
-    background-color: #dc2626;
-  }
-  .grid-cell.disallowed .profile-group.maybe {
-    background-color: #d97706;
   }
 }

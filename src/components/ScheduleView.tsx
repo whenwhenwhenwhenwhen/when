@@ -19,6 +19,8 @@ import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
 import { detectTimezone, getWeekDates, generateTimeSlots } from "../lib/timezone";
 import { DateTime } from "luxon";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 type SelectMode = "auto" | "can-do" | "cant-do" | "maybe" | "blank";
 type AllowMode = "auto" | "allow" | "dont-allow";
@@ -512,9 +514,9 @@ export function ScheduleView() {
 
   if (!schedule) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+      <div className={styles.appShell}>
         <Header />
-        <div className="text-center py-12 text-gray-400 dark:text-slate-500">
+        <div className={styles.emptyState}>
           {schedule === null ? "Schedule not found." : "Loading..."}
         </div>
       </div>
@@ -572,38 +574,39 @@ export function ScheduleView() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900">
+    <div className={styles.appShell}>
       <Header />
-      <main className="max-w-7xl mx-auto px-4 py-4">
+      <main className={styles.mainWide}>
         {/* Schedule Header */}
-        <div className="mb-4">
-          <div className="flex items-start justify-between">
+        <div className={styles.scheduleHeader}>
+          <div className={styles.scheduleHeaderRow}>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">
+              <h1 className={styles.scheduleTitle}>
                 {schedule.title}
               </h1>
               {schedule.description && (
-                <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                <p className={styles.subtleText}>
                   {schedule.description}
                 </p>
               )}
-              <div className="flex items-center gap-3 mt-2">
+              <div className={styles.scheduleMeta}>
                 <span
-                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  className={cx(
+                    styles.badge,
                     schedule.type === "one-off"
-                      ? "bg-green-100 text-green-700 dark:bg-emerald-900/40 dark:text-emerald-400"
-                      : "bg-purple-100 text-purple-700 dark:bg-violet-900/40 dark:text-violet-400"
-                  }`}
+                      ? styles.badgeOneOff
+                      : styles.badgeRecurring,
+                  )}
                 >
                   {schedule.type === "one-off" ? "One-off" : "Recurring"}
                 </span>
-                <span className="text-xs text-gray-400 dark:text-slate-500">
+                <span className={styles.faintText}>
                   by {schedule.creatorName}
                 </span>
               </div>
             </div>
-            <div className="flex flex-col items-end gap-2 shrink-0">
-              <span className="text-xs text-gray-400 dark:text-slate-500">
+            <div className={styles.creatorActions}>
+              <span className={styles.faintText}>
                 My timezone: {timezone}
               </span>
               <DiscordLinkButton
@@ -615,7 +618,7 @@ export function ScheduleView() {
               {isCreator && (
                 <button
                   onClick={() => setShowEditModal(true)}
-                  className="text-xs px-3 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-colors dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:border-slate-500"
+                  className={styles.buttonSecondarySmall}
                 >
                   Edit Schedule
                 </button>
@@ -630,12 +633,12 @@ export function ScheduleView() {
             (p: any) => p._id === editingProfileId
           );
           return editingUser ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 dark:bg-amber-900/30 dark:border-amber-700">
-              <p className="text-sm text-amber-800 dark:text-amber-300">
-                You are editing <span className="font-semibold">{editingUser.displayName}</span>&apos;s availability.{" "}
+            <div className={cx(styles.panel, styles.panelWarning, styles.spaceBottomMedium)}>
+              <p className={styles.warningText}>
+                You are editing <strong>{editingUser.displayName}</strong>&apos;s availability.{" "}
                 <button
                   onClick={handleStopEditingParticipant}
-                  className="text-amber-900 font-medium underline hover:text-amber-700 dark:text-amber-200 dark:hover:text-amber-100"
+                  className={styles.warningTextButton}
                 >
                   Stop editing
                 </button>
@@ -646,8 +649,8 @@ export function ScheduleView() {
 
         {/* Participation closed banner (non-creators) */}
         {!isCreator && schedule.acceptParticipation === false && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 dark:bg-rose-900/30 dark:border-rose-700">
-            <p className="text-sm text-red-700 dark:text-rose-300">
+          <div className={cx(styles.panel, styles.panelDanger, styles.spaceBottomMedium)}>
+            <p className={styles.errorText}>
               The creator has closed participation for this schedule. You cannot make changes to your availability.
             </p>
           </div>
@@ -655,8 +658,8 @@ export function ScheduleView() {
 
         {/* Blocked user banner */}
         {!isCreator && profile && schedule.blockedProfileIds?.includes(profile._id as string) && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 dark:bg-rose-900/30 dark:border-rose-700">
-            <p className="text-sm text-red-700 dark:text-rose-300">
+          <div className={cx(styles.panel, styles.panelDanger, styles.spaceBottomMedium)}>
+            <p className={styles.errorText}>
               You have been blocked from participating in this schedule.
             </p>
           </div>
@@ -664,12 +667,12 @@ export function ScheduleView() {
 
         {/* Non-current week banner for recurring schedules */}
         {schedule.type === "recurring" && weekOffset !== 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 dark:bg-amber-900/30 dark:border-amber-700">
-            <p className="text-sm text-amber-800 dark:text-amber-300">
+          <div className={cx(styles.panel, styles.panelWarning, styles.spaceBottomMedium)}>
+            <p className={styles.warningText}>
               Nomination changes made on non-current weeks are one-off exceptions.{" "}
               <button
                 onClick={() => setWeekOffset(0)}
-                className="text-amber-900 font-medium underline hover:text-amber-700 dark:text-amber-200 dark:hover:text-amber-100"
+                className={styles.warningTextButton}
               >
                 Click 'Today'
               </button>{" "}
@@ -687,15 +690,15 @@ export function ScheduleView() {
         )}
 
         {/* Controls bar */}
-        <div className="flex items-center gap-4 mb-3 flex-wrap">
+        <div className={styles.toolbar}>
           {/* Apply mode / Select mode */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-600 dark:text-slate-400">Apply:</label>
+          <div className={styles.inlineClusterTight}>
+            <label className={styles.calendarLabel}>Apply:</label>
             {isCreator && creatorMode === "limit" ? (
               <select
                 value={allowMode}
                 onChange={(e) => setAllowMode(e.target.value as AllowMode)}
-                className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                className={styles.selectControl}
               >
                 <option value="auto">Auto</option>
                 <option value="allow">Allow</option>
@@ -705,7 +708,7 @@ export function ScheduleView() {
               <select
                 value={selectMode}
                 onChange={(e) => setSelectMode(e.target.value as SelectMode)}
-                className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                className={styles.selectControl}
               >
                 <option value="auto">Auto</option>
                 <option value="can-do">Can Do</option>
@@ -717,58 +720,61 @@ export function ScheduleView() {
           </div>
 
           {/* Legend */}
-          <div className="flex items-center gap-3 text-xs dark:text-slate-300">
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-can-do-bg border border-can-do inline-block"></span>
+          <div className={styles.legend}>
+            <span className={styles.legendItem}>
+              <span className={cx(styles.legendSwatch, styles.canDoSwatch)}></span>
               Can Do
             </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-cant-do-bg border border-cant-do inline-block"></span>
+            <span className={styles.legendItem}>
+              <span className={cx(styles.legendSwatch, styles.cantDoSwatch)}></span>
               Can&apos;t Do
             </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-maybe-bg border border-maybe inline-block"></span>
+            <span className={styles.legendItem}>
+              <span className={cx(styles.legendSwatch, styles.maybeSwatch)}></span>
               Maybe
             </span>
           </div>
 
           {/* Creator mode buttons (radio-style) */}
           {isCreator && (
-            <div className="flex items-center gap-1 ml-auto">
+            <div className={cx(styles.inlineClusterTight, styles.toolbarSpacer)}>
               <button
                 onClick={() => setCreatorMode("limit")}
-                className={`text-xs px-2 py-1 rounded ${
+                className={cx(
+                  styles.modeButton,
                   creatorMode === "limit"
-                    ? "bg-green-100 text-green-700 font-medium dark:bg-emerald-900/40 dark:text-emerald-400"
-                    : "text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
-                }`}
+                    ? cx(styles.modeButtonActive, styles.modeLimitActive)
+                    : undefined,
+                )}
               >
                 Allow/Disallow Time
               </button>
               <button
                 onClick={() => setCreatorMode("nominate")}
-                className={`text-xs px-2 py-1 rounded ${
+                className={cx(
+                  styles.modeButton,
                   creatorMode === "nominate"
-                    ? "bg-blue-100 text-blue-700 font-medium dark:bg-cyan-900/40 dark:text-cyan-400"
-                    : "text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
-                }`}
+                    ? cx(styles.modeButtonActive, styles.modeNominateActive)
+                    : undefined,
+                )}
               >
                 Nominate Time
               </button>
               <button
                 onClick={() => setCreatorMode("lock")}
-                className={`text-xs px-2 py-1 rounded ${
+                className={cx(
+                  styles.modeButton,
                   creatorMode === "lock"
-                    ? "bg-purple-100 text-purple-700 font-medium dark:bg-violet-900/40 dark:text-violet-400"
-                    : "text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
-                }`}
+                    ? cx(styles.modeButtonActive, styles.modeLockActive)
+                    : undefined,
+                )}
               >
                 Lock In Time
               </button>
               {creatorMode === "nominate" && (
                 <button
                   onClick={handleDisallowOutsideNominations}
-                  className="text-xs px-2 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400 transition-colors dark:border-amber-600 dark:text-amber-400 dark:hover:bg-amber-900/40 dark:hover:border-amber-500"
+                  className={styles.modeButtonWarning}
                   title="Mark all times without 'Can Do' or 'Maybe' nominations as disallowed"
                 >
                   Disallow Outside Nominations
@@ -781,11 +787,13 @@ export function ScheduleView() {
           {!isCreator && canLock && (
             <button
               onClick={() => setCreatorMode(creatorMode === "lock" ? null : "lock")}
-              className={`text-xs px-2 py-1 rounded ml-auto ${
+              className={cx(
+                styles.modeButton,
+                styles.toolbarSpacer,
                 creatorMode === "lock"
-                  ? "bg-purple-100 text-purple-700 font-medium dark:bg-violet-900/40 dark:text-violet-400"
-                  : "text-gray-500 hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
-              }`}
+                  ? cx(styles.modeButtonActive, styles.modeLockActive)
+                  : undefined,
+              )}
             >
               Lock In Time
             </button>
@@ -793,8 +801,8 @@ export function ScheduleView() {
 
           {/* Accept Participation toggle (creator only) */}
           {isCreator && schedule && (
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-600 dark:text-slate-400 whitespace-nowrap">
+            <div className={styles.toggleRow}>
+              <label className={styles.calendarLabel}>
                 Accept Participation:
               </label>
               <button
@@ -803,11 +811,10 @@ export function ScheduleView() {
                     schedule.acceptParticipation === false
                   )
                 }
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
-                  schedule.acceptParticipation !== false
-                    ? "bg-green-500 dark:bg-emerald-500"
-                    : "bg-gray-300 dark:bg-slate-600"
-                }`}
+                className={cx(
+                  styles.toggle,
+                  schedule.acceptParticipation !== false && styles.toggleOn,
+                )}
                 title={
                   schedule.acceptParticipation !== false
                     ? "Participation is open. Click to close."
@@ -815,11 +822,10 @@ export function ScheduleView() {
                 }
               >
                 <span
-                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
-                    schedule.acceptParticipation !== false
-                      ? "translate-x-4.5"
-                      : "translate-x-0.5"
-                  }`}
+                  className={cx(
+                    styles.toggleKnob,
+                    schedule.acceptParticipation !== false && styles.toggleKnobOn,
+                  )}
                 />
               </button>
             </div>
@@ -827,19 +833,18 @@ export function ScheduleView() {
 
           {/* Anyone Can Lock toggle (creator only) */}
           {isCreator && schedule && (
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-600 dark:text-slate-400 whitespace-nowrap">
+            <div className={styles.toggleRow}>
+              <label className={styles.calendarLabel}>
                 Anyone Can Lock:
               </label>
               <button
                 onClick={() =>
                   handleToggleAnyoneCanLock(!schedule.anyoneCanLock)
                 }
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-1 ${
-                  schedule.anyoneCanLock
-                    ? "bg-purple-500 dark:bg-violet-500"
-                    : "bg-gray-300 dark:bg-slate-600"
-                }`}
+                className={cx(
+                  styles.toggle,
+                  schedule.anyoneCanLock && styles.togglePurpleOn,
+                )}
                 title={
                   schedule.anyoneCanLock
                     ? "Anyone can lock in times. Click to restrict."
@@ -847,11 +852,10 @@ export function ScheduleView() {
                 }
               >
                 <span
-                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
-                    schedule.anyoneCanLock
-                      ? "translate-x-4.5"
-                      : "translate-x-0.5"
-                  }`}
+                  className={cx(
+                    styles.toggleKnob,
+                    schedule.anyoneCanLock && styles.toggleKnobOn,
+                  )}
                 />
               </button>
             </div>
@@ -900,23 +904,23 @@ export function ScheduleView() {
           {canInteract && (
             <button
               onClick={() => setShowClearModal(true)}
-              className="text-xs px-2 py-1 rounded text-red-600 hover:bg-red-50 border border-red-200 hover:border-red-300 transition-colors dark:text-rose-400 dark:hover:bg-rose-900/40 dark:border-rose-800 dark:hover:border-red-700"
+              className={styles.modeButtonDanger}
             >
               Clear
             </button>
           )}
 
           {/* Week navigation */}
-          <div className="flex items-center gap-2 ml-auto">
+          <div className={cx(styles.inlineClusterTight, styles.toolbarSpacer)}>
             <button
               onClick={handleWeekBack}
               disabled={!canGoBack()}
-              className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed px-2 py-1 rounded hover:bg-gray-100 text-sm dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700"
+              className={styles.navButton}
               title="Previous week"
             >
               &larr;
             </button>
-            <span className="text-xs text-gray-500 dark:text-slate-400 min-w-[120px] text-center">
+            <span className={styles.weekRange}>
               {(() => {
                 const weekDates = getWeekDates(referenceDate, weekStartDay);
                 return `${weekDates[0].toFormat("MMM d")} – ${weekDates[6].toFormat("MMM d, yyyy")}`;
@@ -925,7 +929,7 @@ export function ScheduleView() {
             <button
               onClick={handleWeekForward}
               disabled={!canGoForward()}
-              className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed px-2 py-1 rounded hover:bg-gray-100 text-sm dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700"
+              className={styles.navButton}
               title="Next week"
             >
               &rarr;
@@ -933,7 +937,7 @@ export function ScheduleView() {
             {weekOffset !== 0 && (
               <button
                 onClick={() => setWeekOffset(0)}
-                className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                className={styles.linkButton}
               >
                 Today
               </button>

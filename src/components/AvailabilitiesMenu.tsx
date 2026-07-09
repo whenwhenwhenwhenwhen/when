@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Id } from "../../convex/_generated/dataModel";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 interface SavedAvailability {
   _id: Id<"savedAvailabilities">;
@@ -62,35 +64,20 @@ export function AvailabilitiesMenu({
   const isNonCurrentWeek = scheduleType === "recurring" && weekOffset !== 0;
   const hasNoSavedAvailabilities = savedAvailabilities.length === 0;
 
-  // Button appearance
-  let buttonClass =
-    "text-xs px-3 py-1.5 rounded font-medium transition-colors flex items-center gap-1 border ";
   let buttonLabel = "Availabilities";
   let buttonTitle = "Manage saved availabilities";
+  let buttonStateClass = "";
 
   if (isNonCurrentWeek) {
-    buttonClass +=
-      "bg-gray-200 text-gray-500 border-gray-300 cursor-default dark:bg-slate-700 dark:text-slate-400 dark:border-slate-600";
+    buttonStateClass = styles.menuButtonDisabled;
     buttonTitle =
       "Making one-off nominations to a reoccurring schedule are not saved to your saved availability.";
     buttonLabel = isLinked ? currentLink.savedAvailabilityName : "Availabilities";
   } else if (isLinked) {
-    buttonClass +=
-      "bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200 dark:bg-indigo-900/50 dark:text-indigo-300 dark:border-indigo-600 dark:hover:bg-indigo-800/50";
+    buttonStateClass = styles.menuButtonActive;
     buttonLabel = currentLink.savedAvailabilityName;
     buttonTitle = `Current availability is linked to ${currentLink.savedAvailabilityName}. Any changes made will be automatically applied to your saved availability.`;
-  } else {
-    buttonClass +=
-      "bg-white text-gray-600 border-gray-300 hover:bg-gray-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700";
   }
-
-  // Menu item helpers
-  const menuItemBase =
-    "block w-full text-left px-3 py-2 text-xs transition-colors ";
-  const menuItemEnabled =
-    menuItemBase + "text-gray-700 hover:bg-gray-100 cursor-pointer dark:text-slate-300 dark:hover:bg-slate-700";
-  const menuItemDisabled =
-    menuItemBase + "text-gray-400 cursor-not-allowed dark:text-slate-500";
 
   // Determine disabled states and hover text for each option
   const applyDisabled = hasNoSavedAvailabilities;
@@ -127,16 +114,16 @@ export function AvailabilitiesMenu({
   };
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className={styles.menuWrapper} ref={menuRef}>
       <button
         onClick={() => !isNonCurrentWeek && setIsOpen(!isOpen)}
-        className={buttonClass}
+        className={cx(styles.menuButton, buttonStateClass)}
         title={buttonTitle}
       >
         {buttonLabel}
         {!isNonCurrentWeek && (
           <svg
-            className="w-3 h-3"
+            className={styles.iconXs}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -152,18 +139,18 @@ export function AvailabilitiesMenu({
       </button>
 
       {isOpen && !isNonCurrentWeek && (
-        <div className="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 dark:bg-slate-800 dark:border-slate-700">
+        <div className={styles.menuDropdown}>
           {/* Apply */}
           <button
             onClick={handleApplyClick}
             disabled={applyDisabled}
-            className={applyDisabled ? menuItemDisabled : menuItemEnabled}
+            className={applyDisabled ? styles.menuItemDisabled : styles.menuItem}
             title={applyTitle}
           >
             Apply saved availability...
           </button>
 
-          <div className="border-t border-gray-100 dark:border-slate-700" />
+          <div className={styles.menuDivider} />
 
           {/* Save/overwrite default */}
           <button
@@ -174,7 +161,7 @@ export function AvailabilitiesMenu({
               }
             }}
             disabled={saveDisabled}
-            className={saveDisabled ? menuItemDisabled : menuItemEnabled}
+            className={saveDisabled ? styles.menuItemDisabled : styles.menuItem}
             title={saveTitle}
           >
             Save/overwrite and link default availability
@@ -189,13 +176,13 @@ export function AvailabilitiesMenu({
               }
             }}
             disabled={saveNewDisabled}
-            className={saveNewDisabled ? menuItemDisabled : menuItemEnabled}
+            className={saveNewDisabled ? styles.menuItemDisabled : styles.menuItem}
             title={saveNewTitle}
           >
             Save and link new availability...
           </button>
 
-          <div className="border-t border-gray-100 dark:border-slate-700" />
+          <div className={styles.menuDivider} />
 
           {/* Unlink */}
           <button
@@ -206,7 +193,7 @@ export function AvailabilitiesMenu({
               }
             }}
             disabled={unlinkDisabled}
-            className={unlinkDisabled ? menuItemDisabled : menuItemEnabled}
+            className={unlinkDisabled ? styles.menuItemDisabled : styles.menuItem}
             title={unlinkTitle}
           >
             Unlink from saved
@@ -215,13 +202,13 @@ export function AvailabilitiesMenu({
           {/* Manage link */}
           {savedAvailabilities.length > 0 && (
             <>
-              <div className="border-t border-gray-100 dark:border-slate-700" />
+              <div className={styles.menuDivider} />
               <button
                 onClick={() => {
                   onManage();
                   setIsOpen(false);
                 }}
-                className={menuItemEnabled + " text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"}
+                className={cx(styles.menuItem, styles.accentText)}
               >
                 Manage saved availabilities
               </button>

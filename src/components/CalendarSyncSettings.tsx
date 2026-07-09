@@ -3,6 +3,8 @@ import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { getConfig } from "../config";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 const CALENDAR_NONCE_KEY = "whengames_calendar_oauth_nonce";
 const CALENDAR_CONNECTED_KEY = "whengames_calendar_just_connected";
@@ -154,21 +156,21 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
   };
 
   return (
-    <div className="space-y-4 pt-2 border-t border-gray-200 dark:border-slate-700">
-      <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+    <div className={styles.calendarSettings}>
+      <h3 className={styles.sectionTitle}>
         Calendar Sync
       </h3>
 
       {/* Google Calendar */}
-      <div className="bg-gray-50 rounded-lg p-3 dark:bg-slate-700/50">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-gray-600 dark:text-slate-400">
+      <div className={styles.calendarCard}>
+        <div className={styles.calendarHeader}>
+          <span className={styles.calendarLabel}>
             Google Calendar
           </span>
           {googleSource && (
             <button
               onClick={handleDisconnectGoogle}
-              className="text-xs text-red-500 hover:text-red-600 dark:text-rose-400 dark:hover:text-rose-300"
+              className={cx(styles.linkButton, styles.dangerTextButton)}
             >
               Disconnect
             </button>
@@ -178,29 +180,29 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
         {!googleSource ? (
           <button
             onClick={handleConnectGoogle}
-            className="w-full bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+            className={styles.buttonPrimary}
           >
             Connect Google Calendar
           </button>
         ) : (
-          <div className="space-y-2">
+          <div className={styles.stackTight}>
             {googleSource.availableCalendars && googleSource.availableCalendars.length > 0 ? (
-              <div className="space-y-1 max-h-32 overflow-y-auto">
+              <div className={cx(styles.calendarOptions, styles.scrollAreaSmall)}>
                 {googleSource.availableCalendars.map((cal: { id: string; summary: string }) => (
-                  <label key={cal.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300 cursor-pointer">
+                  <label key={cal.id} className={styles.checkboxOption}>
                     <input
                       type="checkbox"
                       checked={(googleSource.selectedCalendarIds ?? []).includes(cal.id)}
                       onChange={(e) => handleCalendarToggle(cal.id, e.target.checked)}
-                      className="rounded text-blue-600"
+                      className={styles.checkbox}
                     />
-                    <span className="truncate">{cal.summary}</span>
+                    <span className={styles.truncate}>{cal.summary}</span>
                   </label>
                 ))}
               </div>
             ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-gray-400 dark:text-slate-500">
+              <div className={styles.stackTight}>
+                <p className={styles.faintText}>
                   {calendarListLoading
                     ? "Loading calendars from Google..."
                     : "No calendars were returned by Google."}
@@ -209,7 +211,7 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
                   <button
                     type="button"
                     onClick={() => void refreshCalendarList()}
-                    className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    className={styles.linkButton}
                   >
                     Try loading calendars again
                   </button>
@@ -218,21 +220,21 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
             )}
 
             {calendarListError && (
-              <p className="text-xs text-red-600 dark:text-rose-400">
+              <p className={styles.errorText}>
                 {calendarListError}
               </p>
             )}
 
             {googleSource.lastSyncAt && (
-              <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-slate-500">
+              <div className={styles.calendarStatus}>
                 <span>Last sync: {formatRelativeTime(googleSource.lastSyncAt)}</span>
                 {googleSource.lastSyncStatus === "error" && (
-                  <span className="text-red-500 dark:text-rose-400" title={googleSource.lastSyncError}>
+                  <span className={styles.calendarStatusError} title={googleSource.lastSyncError}>
                     (error)
                   </span>
                 )}
                 {googleSource.lastSyncStatus === "success" && (
-                  <span className="text-green-500 dark:text-emerald-400">
+                  <span className={styles.calendarStatusOk}>
                     (ok)
                   </span>
                 )}
@@ -243,21 +245,21 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
       </div>
 
       {/* ICS URL */}
-      <div className="bg-gray-50 rounded-lg p-3 dark:bg-slate-700/50">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-gray-600 dark:text-slate-400">
+      <div className={styles.calendarCard}>
+        <div className={styles.calendarHeader}>
+          <span className={styles.calendarLabel}>
             ICS Calendar URL
           </span>
           {icsSource && (
             <button
               onClick={handleRemoveIcs}
-              className="text-xs text-red-500 hover:text-red-600 dark:text-rose-400 dark:hover:text-rose-300"
+              className={cx(styles.linkButton, styles.dangerTextButton)}
             >
               Remove
             </button>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className={styles.calendarUrlRow}>
           <input
             type="text"
             value={icsUrl}
@@ -267,38 +269,39 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
                 ? "Paste new URL to replace current calendar"
                 : "https://example.com/calendar.ics"
             }
-            className={`flex-1 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-400 ${
-              !isValidUrl(icsUrl) ? "border-red-300" : "border-gray-300"
-            }`}
+            className={cx(
+              !isValidUrl(icsUrl) ? styles.invalidControl : styles.control,
+              styles.flexGrow,
+            )}
           />
           <button
             onClick={handleSaveIcsUrl}
             disabled={!icsUrl.trim() || !isValidUrl(icsUrl)}
-            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className={styles.buttonPrimarySmall}
           >
             {icsSource?.hasIcsUrl ? "Replace" : "Save"}
           </button>
         </div>
         {icsSource?.hasIcsUrl && (
-          <p className="text-xs text-gray-400 mt-1 dark:text-slate-500">
+          <p className={styles.faintText}>
             ICS calendar connected.
           </p>
         )}
         {!isValidUrl(icsUrl) && (
-          <p className="text-xs text-red-500 mt-1 dark:text-rose-400">
+          <p className={styles.errorText}>
             URL must start with https:// or webcal://
           </p>
         )}
         {icsSource?.lastSyncAt && (
-          <div className="flex items-center gap-2 text-xs text-gray-400 mt-2 dark:text-slate-500">
+          <div className={styles.calendarStatus}>
             <span>Last sync: {formatRelativeTime(icsSource.lastSyncAt)}</span>
             {icsSource.lastSyncStatus === "error" && (
-              <span className="text-red-500 dark:text-rose-400" title={icsSource.lastSyncError}>
+              <span className={styles.calendarStatusError} title={icsSource.lastSyncError}>
                 (error)
               </span>
             )}
             {icsSource.lastSyncStatus === "success" && (
-              <span className="text-green-500 dark:text-emerald-400">
+              <span className={styles.calendarStatusOk}>
                 (ok)
               </span>
             )}

@@ -6,6 +6,8 @@ import { getCommonTimezones } from "../lib/timezone";
 import { Id } from "../../convex/_generated/dataModel";
 import { CalendarSyncSettings } from "./CalendarSyncSettings";
 import { useToast } from "../hooks/useToast";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 interface Profile {
   _id: Id<"userProfiles">;
@@ -76,7 +78,7 @@ function TimezoneSearchSelect({
   }, [allTimezones, search]);
 
   return (
-    <div className="relative">
+    <div className={styles.timezoneWrapper}>
       <input
         type="text"
         value={isOpen ? search : value}
@@ -93,12 +95,12 @@ function TimezoneSearchSelect({
           setTimeout(() => setIsOpen(false), 200);
         }}
         placeholder="Search timezones..."
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-400"
+        className={styles.control}
       />
       {isOpen && (
-        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto dark:bg-slate-800 dark:border-slate-600">
+        <div className={styles.timezoneDropdown}>
           {filtered.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-gray-400 dark:text-slate-500">
+            <div className={styles.menuItemDisabled}>
               No matching timezones
             </div>
           ) : (
@@ -106,11 +108,10 @@ function TimezoneSearchSelect({
               <button
                 key={tz}
                 type="button"
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 ${
-                  tz === value
-                    ? "bg-blue-100 text-blue-700 font-medium dark:bg-blue-900/50 dark:text-blue-400"
-                    : "text-gray-700 dark:text-slate-300"
-                }`}
+                className={cx(
+                  styles.timezoneOption,
+                  tz === value && styles.timezoneOptionSelected,
+                )}
                 onMouseDown={(e) => {
                   e.preventDefault(); // Prevent blur
                   onChange(tz);
@@ -119,7 +120,7 @@ function TimezoneSearchSelect({
                 }}
               >
                 {formatTzLabel(tz)}
-                <span className="text-xs text-gray-400 ml-1 dark:text-slate-500">({tz})</span>
+                <span className={styles.faintText}> ({tz})</span>
               </button>
             ))
           )}
@@ -208,68 +209,68 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6 dark:bg-slate-800">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold dark:text-slate-100">User Settings</h2>
+    <div className={styles.modalBackdrop}>
+      <div className={styles.modalPanelMd}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>User Settings</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none dark:hover:text-slate-300"
+            className={styles.closeButton}
           >
             &times;
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 dark:bg-blue-900/30 dark:border-blue-800">
-            <div className="flex items-start gap-3">
+        <div className={styles.formStack}>
+          <div className={cx(styles.panel, styles.panelInfo)}>
+            <div className={styles.inlineStart}>
               {profile.authType === "sso" && profile.ssoImage && (
                 <img
                   src={profile.ssoImage}
                   alt=""
-                  className="w-10 h-10 rounded-full mt-0.5"
+                  className={styles.avatarMd}
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = "none";
                   }}
                 />
               )}
-              <div className="flex-1">
-                <p className="text-xs font-medium text-blue-900 mb-1 dark:text-blue-300">
+              <div className={styles.flexGrow}>
+                <p className={styles.accentText}>
                   Account Type
                 </p>
                 {profile.authType === "sso" ? (
-                  <div className="text-xs text-blue-800 space-y-0.5 dark:text-blue-300">
-                    <p className="font-medium">SSO (Google Account)</p>
+                  <div className={styles.stackTight}>
+                    <p className={styles.accentText}>SSO (Google Account)</p>
                     {profile.ssoName && (
-                      <p className="text-blue-700 dark:text-blue-400">{profile.ssoName}</p>
+                      <p className={styles.accentText}>{profile.ssoName}</p>
                     )}
                     {profile.ssoEmail && (
-                      <p className="text-blue-700 dark:text-blue-400">{profile.ssoEmail}</p>
+                      <p className={styles.accentText}>{profile.ssoEmail}</p>
                     )}
                     {!showUnlinkConfirm ? (
                       <button
                         onClick={() => setShowUnlinkConfirm(true)}
-                        className="mt-2 text-xs text-red-600 hover:text-red-700 underline dark:text-rose-400 dark:hover:text-rose-300"
+                        className={cx(styles.linkButton, styles.dangerTextButton)}
                       >
                         Unlink SSO &amp; convert to cookie account
                       </button>
                     ) : (
-                      <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 dark:bg-rose-900/40 dark:border-rose-800">
-                        <p className="text-xs text-red-700 mb-2 dark:text-rose-400">
+                      <div className={cx(styles.panel, styles.panelDanger)}>
+                        <p className={styles.errorText}>
                           This will disconnect your Google account. Your data
                           will be stored only in this browser. Are you sure?
                         </p>
-                        <div className="flex gap-2">
+                        <div className={styles.fieldRow}>
                           <button
                             onClick={handleUnlink}
                             disabled={unlinking}
-                            className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50"
+                            className={styles.buttonDangerSmall}
                           >
                             {unlinking ? "Unlinking..." : "Yes, unlink"}
                           </button>
                           <button
                             onClick={() => setShowUnlinkConfirm(false)}
-                            className="text-xs text-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                            className={styles.buttonSecondarySmall}
                           >
                             Cancel
                           </button>
@@ -278,9 +279,9 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
                     )}
                   </div>
                 ) : (
-                  <div className="text-xs text-blue-800 dark:text-blue-300">
-                    <p className="font-medium">Cookie User</p>
-                    <p className="text-blue-600 mt-0.5 dark:text-blue-400">
+                  <div className={styles.stackTight}>
+                    <p className={styles.accentText}>Cookie User</p>
+                    <p className={styles.accentText}>
                       Your identity is stored in this browser only. Link a
                       Google account to access your data from any device.
                     </p>
@@ -291,19 +292,19 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+            <label className={styles.fieldLabel}>
               Display Name
             </label>
             <input
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+              className={styles.control}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+            <label className={styles.fieldLabel}>
               Timezone
             </label>
             <TimezoneSearchSelect
@@ -315,13 +316,13 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+            <label className={styles.fieldLabel}>
               Week Starts On
             </label>
             <select
               value={weekStartDay}
               onChange={(e) => setWeekStartDay(Number(e.target.value))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+              className={styles.control}
             >
               {DAY_NAMES.map((name, i) => (
                 <option key={i} value={i}>
@@ -331,17 +332,17 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className={styles.checkboxRow}>
             <input
               type="checkbox"
               id="dst-notifications"
               checked={dstNotifications}
               onChange={(e) => setDstNotifications(e.target.checked)}
-              className="rounded text-blue-600"
+              className={styles.checkbox}
             />
             <label
               htmlFor="dst-notifications"
-              className="text-sm text-gray-700 dark:text-slate-300"
+              className={styles.checkboxOption}
             >
               DST change notifications
             </label>
@@ -354,17 +355,17 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
             />
           )}
 
-          <div className="flex justify-end gap-3 pt-2">
+          <div className={styles.modalFooter}>
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-slate-400 dark:hover:text-slate-200"
+              className={styles.buttonPlain}
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50"
+              className={styles.buttonPrimary}
             >
               {saving ? "Saving..." : "Save"}
             </button>

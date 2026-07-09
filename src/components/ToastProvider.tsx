@@ -1,4 +1,6 @@
 import { createContext, useState, useCallback, useRef } from "react";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 interface Toast {
   id: string;
@@ -69,25 +71,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [startTimer],
   );
 
-  const borderColor = (type: Toast["type"]) => {
-    if (type === "success") return "border-l-green-500";
-    if (type === "error") return "border-l-red-500";
-    return "border-l-blue-500";
+  const toastTypeClass = (type: Toast["type"]) => {
+    if (type === "success") return styles.toastSuccess;
+    if (type === "error") return styles.toastError;
+    return styles.toastInfo;
   };
 
   return (
     <ToastContext.Provider value={{ showToast, updateToast, dismissToast }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div className={styles.toastStack}>
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-center gap-2 min-w-[250px] max-w-[400px] bg-white border border-gray-200 border-l-4 ${borderColor(toast.type)} rounded-lg shadow-lg px-4 py-3 animate-[slideIn_0.2s_ease-out] dark:bg-slate-800 dark:border-slate-700`}
+            className={cx(styles.toast, toastTypeClass(toast.type))}
           >
-            <span className="text-sm text-gray-800 flex-1 dark:text-slate-200">{toast.message}</span>
+            <span className={styles.toastMessage}>{toast.message}</span>
             <button
               onClick={() => dismissToast(toast.id)}
-              className="text-gray-400 hover:text-gray-600 text-lg leading-none shrink-0 dark:hover:text-slate-300"
+              className={styles.closeButton}
             >
               &times;
             </button>

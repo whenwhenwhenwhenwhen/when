@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { getConfig } from "../config";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 interface Props {
   scheduleId: Id<"schedules">;
@@ -79,19 +81,19 @@ export function DiscordLinkButton({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={styles.inlineClusterTight}>
       {hasLinks && (
-        <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-400">
-          <DiscordIcon className="w-4 h-4 text-indigo-500" />
+        <div className={styles.discordLinks}>
+          <DiscordIcon className={cx(styles.iconMd, styles.discordIcon)} />
           {links!.map((l) => (
-            <span key={l._id} className="flex items-center gap-1">
+            <span key={l._id} className={styles.inlineClusterTight}>
               <span title={l.guildName ?? undefined}>
                 #{l.channelName ?? l.channelId.slice(0, 6)}
               </span>
               {isCreator && (
                 <button
                   onClick={() => handleUnlink(l._id)}
-                  className="text-gray-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-rose-400"
+                  className={cx(styles.iconButton, styles.iconButtonDanger)}
                   title="Unlink"
                   aria-label="Unlink Discord channel"
                 >
@@ -106,12 +108,12 @@ export function DiscordLinkButton({
         <button
           onClick={handleLink}
           disabled={busy || !profileId}
-          className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-indigo-300 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-400 transition-colors disabled:opacity-50 dark:border-indigo-600 dark:text-indigo-300 dark:hover:bg-indigo-900/40"
+          className={styles.buttonSecondarySmall}
           title={
             hasLinks ? "Link another Discord channel" : "Link a Discord channel"
           }
         >
-          <DiscordIcon className="w-3.5 h-3.5" />
+          <DiscordIcon className={cx(styles.iconSm, styles.discordIcon)} />
           {busy ? "Opening Discord..." : hasLinks ? "Link another" : "Link to Discord"}
         </button>
       )}

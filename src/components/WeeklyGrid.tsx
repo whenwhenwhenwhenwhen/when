@@ -10,6 +10,8 @@ import {
   convertOneOffSlot,
 } from "../lib/timezone";
 import { getDstNotice } from "../lib/dst";
+import { cx } from "../lib/classes";
+import styles from "../styles/app.module.css";
 
 type CellState = "can-do" | "cant-do" | "maybe" | "blank";
 type SelectMode = "auto" | "can-do" | "cant-do" | "maybe" | "blank";
@@ -820,10 +822,10 @@ export function WeeklyGrid({
     (dayIndex: number, timeIndex: number): string => {
       if (!isCellInDragSelection(dayIndex, timeIndex)) return "";
 
-      if (isCreator && creatorMode === "limit") return "drag-select-limit";
-      if (canLock && creatorMode === "lock") return "drag-select-lock";
+      if (isCreator && creatorMode === "limit") return styles.dragSelectLimit;
+      if (canLock && creatorMode === "lock") return styles.dragSelectLock;
       // nominate mode or non-creator
-      return "bg-blue-100 dark:bg-cyan-900/40";
+      return styles.dragSelectNominate;
     },
     [isCellInDragSelection, isCreator, canLock, creatorMode]
   );
@@ -877,16 +879,20 @@ export function WeeklyGrid({
 
   // Determine the CSS class for the selection box overlay
   const selectionBoxClass = useMemo(() => {
-    if (isCreator && creatorMode === "limit") return "selection-box limit";
-    if (canLock && creatorMode === "lock") return "selection-box lock";
-    return "selection-box";
+    if (isCreator && creatorMode === "limit") {
+      return cx(styles.selectionBox, styles.selectionBoxLimit);
+    }
+    if (canLock && creatorMode === "lock") {
+      return cx(styles.selectionBox, styles.selectionBoxLock);
+    }
+    return styles.selectionBox;
   }, [isCreator, canLock, creatorMode]);
 
   return (
-    <div className="relative">
+    <div className={styles.gridRoot}>
       {/* DST Notice */}
       {dstNotice && (
-        <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3 text-xs text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300">
+        <div className={styles.gridNotice}>
           {dstNotice}
         </div>
       )}
@@ -894,13 +900,12 @@ export function WeeklyGrid({
       {/* Grid Container */}
       <div
         ref={gridRef}
-        className={`grid-container overflow-auto border border-gray-300 rounded-lg bg-white dark:border-slate-600 dark:bg-slate-800 ${!canInteract ? "no-interact" : ""}`}
-        style={{ maxHeight: "calc(100vh - 260px)" }}
+        className={cx(styles.gridContainer, !canInteract && styles.noInteract)}
       >
-        <table className="border-collapse w-full" style={{ minWidth: 640 }}>
-          <thead className="sticky top-0 z-10 bg-white dark:bg-slate-800">
+        <table className={styles.scheduleTable}>
+          <thead className={styles.tableHead}>
             <tr>
-              <th className="border border-gray-200 px-1 py-1 text-xs text-gray-500 font-medium w-16 bg-gray-50 sticky left-0 z-20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+              <th className={styles.timeHeader}>
                 Time
               </th>
               {dayNames.map((day, i) => {
@@ -911,14 +916,14 @@ export function WeeklyGrid({
                 return (
                   <th
                     key={i}
-                    className={`border border-gray-200 px-1 py-1 text-xs font-medium min-w-[80px] dark:border-slate-700 ${
-                      isToday
-                        ? "bg-blue-50 text-blue-700 current-day-header dark:bg-cyan-900/30 dark:text-cyan-400"
-                        : "bg-gray-50 text-gray-600 dark:bg-slate-800 dark:text-slate-400"
-                    } ${!inRange ? "opacity-40" : ""}`}
+                    className={cx(
+                      styles.dayHeader,
+                      isToday && styles.currentDayHeader,
+                      !inRange && styles.dayHeaderMuted,
+                    )}
                   >
                     <div>{day}</div>
-                    <div className="text-[10px] font-normal text-gray-400 dark:text-slate-500">
+                    <div className={styles.dayDate}>
                       {columnDates[i]}
                     </div>
                   </th>
@@ -929,7 +934,7 @@ export function WeeklyGrid({
           <tbody>
             {TIME_SLOTS.map((slot, timeIndex) => (
               <tr key={slot}>
-                <td className="border border-gray-200 px-1 py-0 text-[10px] text-gray-400 font-mono whitespace-nowrap bg-gray-50 sticky left-0 z-10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500">
+                <td className={styles.timeCell}>
                   {timeIndex % 2 === 0 ? formatTimeSlot(slot) : ""}
                 </td>
                 {dayNames.map((_, dayIndex) => {
@@ -961,22 +966,30 @@ export function WeeklyGrid({
                     cellDisallowed && !inLimitMode && !inCreatorNominateMode;
 
                   // Build className
-                  const cellClasses = [
-                    "grid-cell",
-                    myState !== "blank" ? `state-${myState}` : "",
-                    cellDisallowed ? "disallowed" : "",
-                    cellDisallowed && (inLimitMode || inCreatorNominateMode) ? "limit-interactive" : "",
-                    cellLocked ? "locked" : "",
-                    cellCalendarSynced ? "calendar-synced" : "",
-                    isToday ? "current-day-col" : "",
+                  const stateClass =
+                    myState === "can-do"
+                      ? styles.stateCanDo
+                      : myState === "cant-do"
+                        ? styles.stateCantDo
+                        : myState === "maybe"
+                          ? styles.stateMaybe
+                          : "";
+                  const cellClasses = cx(
+                    styles.gridCell,
+                    stateClass,
+                    cellDisallowed && styles.disallowed,
+                    cellDisallowed &&
+                      (inLimitMode || inCreatorNominateMode) &&
+                      styles.limitInteractive,
+                    cellLocked && styles.locked,
+                    cellCalendarSynced && styles.calendarSynced,
+                    isToday && styles.currentDayCol,
                     isToday && timeIndex === TIME_SLOTS.length - 1
-                      ? "current-day-col-last"
+                      ? styles.currentDayColLast
                       : "",
                     dragSelectionClass,
-                    !inRange ? "opacity-30 pointer-events-none" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ");
+                    !inRange && styles.cellOutOfRange,
+                  );
 
                   return (
                     <td
@@ -1007,14 +1020,14 @@ export function WeeklyGrid({
                       {/* Current time line */}
                       {showTimeLine && (
                         <div
-                          className="current-time-line"
+                          className={styles.currentTimeLine}
                           style={{ top: `${timeLineOffset}%` }}
                         />
                       )}
 
                       {/* Profile icons for other users */}
                       {otherSelections.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-0.5 h-full">
+                        <div className={styles.profileCellContent}>
                           {(
                             ["can-do", "cant-do", "maybe"] as const
                           ).map((state) => {
@@ -1025,15 +1038,15 @@ export function WeeklyGrid({
 
                             const bgClass =
                               state === "can-do"
-                                ? "can-do"
+                                ? styles.profileGroupCanDo
                                 : state === "cant-do"
-                                  ? "cant-do"
-                                  : "maybe";
+                                  ? styles.profileGroupCantDo
+                                  : styles.profileGroupMaybe;
 
                             return (
                               <div
                                 key={state}
-                                className={`profile-group ${bgClass}`}
+                                className={cx(styles.profileGroup, bgClass)}
                               >
                                 {stateSelections.map((s) => {
                                   const prof = profileMap.get(s.profileId);
@@ -1045,12 +1058,12 @@ export function WeeklyGrid({
                                       src={prof.profileImageUrl}
                                       alt={prof.displayName}
                                       title={`${prof.displayName} (${state})`}
-                                      className="profile-icon"
+                                      className={styles.profileIcon}
                                     />
                                   ) : (
                                     <span
                                       key={s.profileId}
-                                      className="profile-icon"
+                                      className={styles.profileIcon}
                                       style={{
                                         backgroundColor: getUserColor(
                                           s.profileId
