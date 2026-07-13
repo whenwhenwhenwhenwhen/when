@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useMutation } from "convex/react";
+import { useConvexAuth, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useGoogleAuth } from "../lib/googleAuth";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
 
@@ -15,7 +14,7 @@ import { useTimezone } from "../hooks/useTimezone";
  * links the existing anonymous profile or creates a new authenticated one.
  */
 export function AuthProfileSync() {
-  const { isAuthenticated } = useGoogleAuth();
+  const { isAuthenticated } = useConvexAuth();
   const { anonymousId, clearAnonymousUser } = useAnonymousUser();
   const { timezone } = useTimezone();
   const ensureProfile = useMutation(api.users.ensureAuthProfile);

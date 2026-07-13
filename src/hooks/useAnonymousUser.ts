@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
 const ANON_ID_KEY = "whengames_anonymous_id";
 const ANON_NAME_KEY = "whengames_anonymous_name";
@@ -15,20 +15,17 @@ function generateUUID(): string {
  * - Provides methods to update the display name
  */
 export function useAnonymousUser() {
-  const [anonymousId, setAnonymousId] = useState<string>("");
-  const [displayName, setDisplayNameState] = useState<string>("");
-
-  useEffect(() => {
+  const [anonymousId, setAnonymousId] = useState<string>(() => {
     let id = localStorage.getItem(ANON_ID_KEY);
     if (!id) {
       id = generateUUID();
       localStorage.setItem(ANON_ID_KEY, id);
     }
-    setAnonymousId(id);
-
-    const name = localStorage.getItem(ANON_NAME_KEY) || "";
-    setDisplayNameState(name);
-  }, []);
+    return id;
+  });
+  const [displayName, setDisplayNameState] = useState<string>(
+    () => localStorage.getItem(ANON_NAME_KEY) || "",
+  );
 
   const setDisplayName = useCallback((name: string) => {
     localStorage.setItem(ANON_NAME_KEY, name);

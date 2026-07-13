@@ -19,6 +19,15 @@ import { mutationHandlers } from "./handlers/mutations";
 import "./seed";
 
 // ---------------------------------------------------------------------------
+// useConvexAuth
+// ---------------------------------------------------------------------------
+
+/** Design mode is always anonymous and finishes auth initialization immediately. */
+export function useConvexAuth() {
+  return { isLoading: false, isAuthenticated: false };
+}
+
+// ---------------------------------------------------------------------------
 // Function name extraction
 // ---------------------------------------------------------------------------
 
