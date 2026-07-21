@@ -17,7 +17,7 @@
     "docker:deploy": "pnpm docker:build"
   },
   "dependencies": {
-    "convex": "^1.41.0",
+    "convex": "^1.42.3",
     "luxon": "3.7.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",

@@ -440,7 +440,6 @@ export const updateLinkSnapshot = internalMutation({
     linkId: v.id("scheduleDiscordLinks"),
     snapshotJson: v.string(),
     messageId: v.optional(v.string()),
-    clearPending: v.boolean(),
   },
   handler: async (ctx, args) => {
     const link = await ctx.db.get(args.linkId);
@@ -450,8 +449,28 @@ export const updateLinkSnapshot = internalMutation({
       lastNotifiedAt: Date.now(),
     };
     if (args.messageId) patch.lastMessageId = args.messageId;
-    if (args.clearPending) patch.pendingScheduledId = undefined;
     await ctx.db.patch(args.linkId, patch);
+  },
+});
+
+/**
+ * Atomically claims a debounced update before it performs external I/O.
+ *
+ * A scheduled action that has already started cannot be cancelled. Comparing
+ * its request metadata with the link's current pending ID prevents an older
+ * action from sending after a newer replacement has been scheduled.
+ */
+export const claimDebouncedUpdate = internalMutation({
+  args: { linkId: v.id("scheduleDiscordLinks") },
+  handler: async (ctx, args): Promise<boolean> => {
+    const { scheduledFunctionId } = await ctx.meta.getRequestMetadata();
+    if (!scheduledFunctionId) return false;
+
+    const link = await ctx.db.get(args.linkId);
+    if (!link || link.pendingScheduledId !== scheduledFunctionId) return false;
+
+    await ctx.db.patch(args.linkId, { pendingScheduledId: undefined });
+    return true;
   },
 });
 
@@ -483,7 +502,6 @@ async function sendSummaryFor(
     await ctx.runMutation(internal.discord.updateLinkSnapshot, {
       linkId,
       snapshotJson: snapshot,
-      clearPending: true,
     });
     return;
   }
@@ -509,7 +527,6 @@ async function sendSummaryFor(
     linkId,
     snapshotJson: snapshot,
     messageId,
-    clearPending: true,
   });
 }
 
@@ -569,6 +586,12 @@ export const linkScheduleToChannel = action({
 export const sendDebouncedUpdate = internalAction({
   args: { linkId: v.id("scheduleDiscordLinks") },
   handler: async (ctx, args) => {
+    const claimed: boolean = await ctx.runMutation(
+      internal.discord.claimDebouncedUpdate,
+      { linkId: args.linkId }
+    );
+    if (!claimed) return;
+
     await sendSummaryFor(ctx, args.linkId, { onlyIfChanged: true });
   },
 });
