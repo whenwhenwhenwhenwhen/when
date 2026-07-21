@@ -6,6 +6,7 @@ import { useGoogleAuth } from "../lib/googleAuth";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AnimatedTitle } from "./AnimatedTitle";
+import favicon from "../assets/favicon.svg";
 import styles from "../styles/app.module.css";
 
 const CALENDAR_REOPEN_SETTINGS_KEY =
@@ -78,6 +79,12 @@ export function Header() {
       <header className={styles.header}>
         <div className={styles.headerInner}>
           <a href="/" className={styles.brandLink}>
+            <img
+              src={favicon}
+              alt=""
+              aria-hidden="true"
+              className={styles.brandIcon}
+            />
             <AnimatedTitle />
           </a>
 
