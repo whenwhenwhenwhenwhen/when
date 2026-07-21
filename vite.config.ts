@@ -3,5 +3,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     outDir: "dist",
+    assetsInlineLimit: (filePath) =>
+      filePath.endsWith("favicon.svg") ? false : undefined,
   },
 });
