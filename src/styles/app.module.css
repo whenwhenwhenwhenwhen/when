@@ -77,14 +77,6 @@
   text-decoration: none;
 }
 
-.brandIcon {
-  display: block;
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: 0 0 1.25rem;
-  object-fit: contain;
-}
-
 .inlineCluster,
 .toolbar,
 .modalActions,
@@ -303,7 +295,6 @@
   margin-bottom: var(--space-4);
 }
 
-.scheduleCard,
 .panel,
 .modalPanelSm,
 .modalPanelMd,
@@ -317,8 +308,12 @@
 
 .scheduleCard {
   display: block;
-  padding: var(--space-4);
+  padding: 2% 5% 2% 2%;
+
   color: inherit;
+  position: relative;
+  overflow: hidden;
+  z-index: 0;
   text-decoration: none;
   border-radius: var(--radius-lg);
   transition:
@@ -326,7 +321,25 @@
     box-shadow 160ms ease;
 }
 
-.scheduleCard:hover {
+.scheduleCard::before {
+  content: '';
+  position: absolute;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  top: 0;
+  left: 1%;
+  width: 98%;
+  height: 98%;
+  transform: skew(-5deg);
+  transform-origin: 0 0;
+  border-radius: var(--radius-lg);
+  z-index: -1;
+    transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.scheduleCard:hover::before {
   border-color: var(--color-accent-soft-border);
   box-shadow: var(--shadow-sm);
 }
@@ -381,6 +394,7 @@
   border: 0;
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
+  font-size: 0.9em;
 }
 
 .modalPanelSm {
@@ -536,7 +550,7 @@
 .menuButton {
   color: var(--color-text-muted);
   background: var(--color-surface);
-  border-color: var(--color-border-strong);
+
 }
 
 .buttonSecondary:hover,
@@ -544,7 +558,7 @@
 .menuButton:hover {
   color: var(--color-text-soft);
   background: var(--color-surface-muted);
-  border-color: var(--color-border-strong);
+  
 }
 
 .buttonPlain {
@@ -600,11 +614,12 @@
 }
 
 .dangerTextButton {
-  color: var(--color-danger);
+  
+  color: var(--color-danger-hover);
 }
 
 .dangerTextButton:hover {
-  color: var(--color-danger-hover);
+  color: var(--color-danger);
 }
 
 .warningTextButton {
@@ -743,19 +758,21 @@ input:disabled {
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.125rem var(--space-2);
-  border-radius: var(--radius-pill);
+  padding: .25em;
+  border-radius: 0;
   font-size: 0.75rem;
   font-weight: 500;
+  transform: skew(-5deg);
+  text-transform: capitalize;
 }
 
 .badgeOneOff {
-  color: var(--color-success-soft-text);
+  color: #c7ffe8;
   background: var(--color-success-soft);
 }
 
 .badgeRecurring {
-  color: var(--color-purple-soft-text);
+  color: #FFF;
   background: var(--color-purple-soft);
 }
 
@@ -1092,7 +1109,6 @@ input:disabled {
 
 .modeButtonWarning,
 .modeButtonDanger {
-  border: 1px solid;
   transition:
     background-color 160ms ease,
     border-color 160ms ease;
@@ -1100,8 +1116,8 @@ input:disabled {
 
 .modeButtonWarning {
   color: var(--color-warning-soft-text);
-  border-color: var(--color-warning-soft-border);
   background:var(--color-surface);
+  padding: 0.25em 1em 0.25em 1em;
 }
 
 .modeButtonWarning:hover {
@@ -1135,6 +1151,8 @@ input:disabled {
   border-radius: var(--radius-pill);
   background: var(--color-border-strong);
   transition: background-color 160ms ease;
+  transform: none !important;
+  clip-path: none !important;
 }
 
 .toggle:focus {
