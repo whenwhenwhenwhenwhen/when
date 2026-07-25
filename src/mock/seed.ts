@@ -98,6 +98,30 @@ const oneOffScheduleId = insert("schedules", {
   acceptParticipation: true,
 });
 
+const unlistedScheduleId = insert("schedules", {
+  title: "Campaign Planning",
+  description: "An unlisted schedule visible because you nominated a time.",
+  type: "recurring",
+  creatorProfileId: aliceProfileId,
+  recurringStartDate: isoDate(-14),
+  creatorTimezone: "America/New_York",
+  isPrivate: true,
+  createdAt: Date.now() - 86400000 * 2,
+  acceptParticipation: true,
+});
+
+const endedScheduleId = insert("schedules", {
+  title: "Launch Retrospective",
+  description: "A completed one-off schedule in the archive.",
+  type: "one-off",
+  creatorProfileId: bobProfileId,
+  dateRangeStart: isoDate(-14),
+  dateRangeEnd: isoDate(-7),
+  creatorTimezone: "America/Los_Angeles",
+  createdAt: Date.now() - 86400000 * 20,
+  acceptParticipation: false,
+});
+
 // ---------------------------------------------------------------------------
 // Selections — recurring schedule (dayKey = "0"-"6" for day-of-week)
 // ---------------------------------------------------------------------------
@@ -167,6 +191,29 @@ for (const slot of oneOffSlots) {
   });
 }
 
+insert("selections", {
+  scheduleId: unlistedScheduleId,
+  profileId: designerProfileId,
+  dayKey: "3",
+  timeSlot: "19:00",
+  timezone: userTimezone,
+  state: "can-do",
+});
+
+insert("selections", {
+  scheduleId: endedScheduleId,
+  profileId: designerProfileId,
+  dayKey: isoDate(-10),
+  timeSlot: "18:00",
+  timezone: userTimezone,
+  state: "can-do",
+});
+
 // Export IDs so they can be referenced if needed
 export { designerProfileId, aliceProfileId, bobProfileId };
-export { recurringScheduleId, oneOffScheduleId };
+export {
+  recurringScheduleId,
+  oneOffScheduleId,
+  unlistedScheduleId,
+  endedScheduleId,
+};

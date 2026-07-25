@@ -20,10 +20,25 @@ interface Schedule {
 interface Props {
   schedule: Schedule;
   anonymousId?: string;
+  archiveState?: {
+    canArchive: boolean;
+    isArchived: boolean;
+    isExpired: boolean;
+    isManuallyArchived: boolean;
+  };
+  isArchiving: boolean;
+  onToggleArchive: () => Promise<void>;
   onClose: () => void;
 }
 
-export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
+export function EditScheduleModal({
+  schedule,
+  anonymousId,
+  archiveState,
+  isArchiving,
+  onToggleArchive,
+  onClose,
+}: Props) {
   const navigate = useNavigate();
   const updateSchedule = useMutation(api.schedules.update);
   const removeSchedule = useMutation(api.schedules.remove);
@@ -332,13 +347,36 @@ export function EditScheduleModal({ schedule, anonymousId, onClose }: Props) {
           {/* Delete section */}
           <div className={styles.dividerTop}>
             {!showDeleteConfirm ? (
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className={styles.buttonDangerSmall}
-              >
-                Delete Schedule
-              </button>
+              <div className={styles.itemActions}>
+                {archiveState?.canArchive && (
+                  <button
+                    type="button"
+                    onClick={onToggleArchive}
+                    disabled={isArchiving || archiveState.isExpired}
+                    className={styles.buttonSecondarySmall}
+                    title={
+                      archiveState.isExpired
+                        ? "This one-off schedule is archived because its date window has ended."
+                        : undefined
+                    }
+                  >
+                    {isArchiving
+                      ? "Updating..."
+                      : archiveState.isExpired
+                        ? "Archived (ended)"
+                        : archiveState.isManuallyArchived
+                          ? "Unarchive for me"
+                          : "Archive for me"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className={styles.buttonDangerSmall}
+                >
+                  Delete Schedule
+                </button>
+              </div>
             ) : (
               <div className={cx(styles.panel, styles.panelDanger)}>
                 <p className={styles.errorText}>

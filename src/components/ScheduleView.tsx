@@ -36,9 +36,15 @@ export function ScheduleView() {
     anonymousId: isAuthenticated ? undefined : anonymousId || undefined,
   });
   const callerAnonymousId = isAuthenticated ? undefined : anonymousId || undefined;
+  const currentDate = DateTime.local().toISODate() ?? "";
 
   const schedule = useQuery(api.schedules.get, {
     scheduleId: id as Id<"schedules">,
+  });
+  const viewerScheduleState = useQuery(api.schedules.getViewerScheduleState, {
+    scheduleId: id as Id<"schedules">,
+    anonymousId: callerAnonymousId,
+    currentDate,
   });
 
   const { timezone } = useTimezone(profile?.timezone);
@@ -58,6 +64,7 @@ export function ScheduleView() {
   const removeLockEditor = useMutation(api.schedules.removeLockEditor);
   const removeParticipant = useMutation(api.schedules.removeParticipant);
   const blockParticipant = useMutation(api.schedules.blockParticipant);
+  const setArchived = useMutation(api.schedules.setArchived);
 
   const [selectMode, setSelectMode] = useState<SelectMode>("auto");
   const [allowMode, setAllowMode] = useState<AllowMode>("auto");
@@ -69,6 +76,7 @@ export function ScheduleView() {
   const [showSaveNewModal, setShowSaveNewModal] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<Id<"userProfiles"> | null>(null);
 
   // Saved availabilities (only for SSO users)
@@ -387,6 +395,34 @@ export function ScheduleView() {
     setEditingProfileId(null);
   }, []);
 
+  const handleToggleArchive = useCallback(async () => {
+    if (
+      !schedule ||
+      !viewerScheduleState?.canArchive ||
+      viewerScheduleState.isExpired
+    ) {
+      return;
+    }
+
+    setIsArchiving(true);
+    try {
+      await setArchived({
+        scheduleId: schedule._id,
+        anonymousId: callerAnonymousId,
+        archived: !viewerScheduleState.isManuallyArchived,
+      });
+    } catch (err) {
+      console.error("Failed to update schedule archive state:", err);
+    } finally {
+      setIsArchiving(false);
+    }
+  }, [
+    callerAnonymousId,
+    schedule,
+    setArchived,
+    viewerScheduleState,
+  ]);
+
   // Clear modal content based on role and creator mode
   const getClearModalContent = () => {
     if (canLock && creatorMode === "lock") {
@@ -621,6 +657,27 @@ export function ScheduleView() {
                   className={styles.buttonSecondarySmall}
                 >
                   Edit Schedule
+                </button>
+              )}
+              {!isCreator && viewerScheduleState?.canArchive && (
+                <button
+                  type="button"
+                  onClick={handleToggleArchive}
+                  disabled={isArchiving || viewerScheduleState.isExpired}
+                  className={styles.buttonSecondarySmall}
+                  title={
+                    viewerScheduleState.isExpired
+                      ? "This one-off schedule is archived because its date window has ended."
+                      : undefined
+                  }
+                >
+                  {isArchiving
+                    ? "Updating..."
+                    : viewerScheduleState.isExpired
+                      ? "Archived (ended)"
+                      : viewerScheduleState.isManuallyArchived
+                        ? "Unarchive"
+                        : "Archive"}
                 </button>
               )}
             </div>
@@ -1011,6 +1068,9 @@ export function ScheduleView() {
         <EditScheduleModal
           schedule={schedule}
           anonymousId={callerAnonymousId}
+          archiveState={viewerScheduleState}
+          isArchiving={isArchiving}
+          onToggleArchive={handleToggleArchive}
           onClose={() => setShowEditModal(false)}
         />
       )}

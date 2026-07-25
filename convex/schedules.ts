@@ -8,9 +8,12 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
+import { hasScheduleParticipation } from "./scheduleMemberships";
 
 const DEFAULT_DISCORD_DEBOUNCE_MS = 5 * 60 * 1000;
 const SCHEDULE_LIST_LIMIT = 100;
+const PROFILE_SELECTION_SCAN_LIMIT = 5000;
+const PROFILE_AVAILABILITY_LINK_SCAN_LIMIT = 500;
 const SCHEDULE_DETAIL_SELECTION_LIMIT = 5000;
 const SCHEDULE_DETAIL_LINK_LIMIT = 500;
 const SCHEDULE_DETAIL_BLOCKED_PROFILE_LIMIT = 1000;
@@ -182,10 +185,57 @@ async function canLockSchedule(
   );
 }
 
-// List all schedules (public)
+function isPastOneOffSchedule(
+  schedule: Doc<"schedules">,
+  currentDate: string
+): boolean {
+  return (
+    schedule.type === "one-off" &&
+    schedule.dateRangeEnd !== undefined &&
+    schedule.dateRangeEnd < currentDate
+  );
+}
+
+function sortSchedulesAlphabetically(
+  schedules: Doc<"schedules">[]
+): Doc<"schedules">[] {
+  return schedules.sort(
+    (a, b) =>
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base" }) ||
+      a.createdAt - b.createdAt
+  );
+}
+
+async function enrichSchedule(
+  ctx: QueryCtx,
+  schedule: Doc<"schedules">,
+  state: {
+    isParticipated: boolean;
+    isArchived: boolean;
+    isExpired: boolean;
+    isManuallyArchived: boolean;
+  }
+) {
+  const creator = await ctx.db.get(schedule.creatorProfileId);
+  const storedImageUrl = creator?.profileImageStorageId
+    ? await ctx.storage.getUrl(creator.profileImageStorageId)
+    : null;
+
+  return {
+    ...schedule,
+    ...state,
+    creatorName: creator?.displayName ?? "Unknown",
+    creatorImage: storedImageUrl ?? creator?.profileImageUrl,
+  };
+}
+
+// List current public schedules plus schedules associated with the viewer.
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    anonymousId: v.optional(v.string()),
+    currentDate: v.string(),
+  },
+  handler: async (ctx, args) => {
     const explicitlyPublicSchedules = await ctx.db
       .query("schedules")
       .withIndex("by_isPrivate_and_createdAt", (q) =>
@@ -202,7 +252,6 @@ export const list = query({
       .order("desc")
       .take(SCHEDULE_LIST_LIMIT);
 
-    // Filter out unlisted schedules. Direct schedule links remain accessible.
     const listedSchedules = [
       ...explicitlyPublicSchedules,
       ...legacyPublicSchedules,
@@ -210,23 +259,281 @@ export const list = query({
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, SCHEDULE_LIST_LIMIT);
 
-    // Enrich with creator profile info
-    const enriched = await Promise.all(
-      listedSchedules.map(async (schedule) => {
-        const creator = await ctx.db.get(schedule.creatorProfileId);
-        // Prefer Convex-stored image over hotlinked Google URL
-        const storedImageUrl = creator?.profileImageStorageId
-          ? await ctx.storage.getUrl(creator.profileImageStorageId)
-          : null;
-        return {
-          ...schedule,
-          creatorName: creator?.displayName ?? "Unknown",
-          creatorImage: storedImageUrl ?? creator?.profileImageUrl,
-        };
+    const viewer = await getCallerProfile(ctx, args.anonymousId);
+    if (!viewer) {
+      const publicSchedules = sortSchedulesAlphabetically(
+        listedSchedules.filter(
+          (schedule) => !isPastOneOffSchedule(schedule, args.currentDate)
+        )
+      );
+
+      return {
+        participated: [],
+        publicSchedules: await Promise.all(
+          publicSchedules.map((schedule) =>
+            enrichSchedule(ctx, schedule, {
+              isParticipated: false,
+              isArchived: false,
+              isExpired: false,
+              isManuallyArchived: false,
+            })
+          )
+        ),
+        archived: [],
+        hasArchived: false,
+      };
+    }
+
+    const [
+      createdSchedules,
+      archiveRecords,
+      selections,
+      availabilityLinks,
+    ] = await Promise.all([
+      ctx.db
+        .query("schedules")
+        .withIndex("by_creatorProfileId", (q) =>
+          q.eq("creatorProfileId", viewer._id)
+        )
+        .order("desc")
+        .take(SCHEDULE_LIST_LIMIT),
+      ctx.db
+        .query("scheduleArchives")
+        .withIndex("by_profileId", (q) => q.eq("profileId", viewer._id))
+        .order("desc")
+        .take(SCHEDULE_LIST_LIMIT),
+      ctx.db
+        .query("selections")
+        .withIndex("by_profileId", (q) => q.eq("profileId", viewer._id))
+        .take(PROFILE_SELECTION_SCAN_LIMIT),
+      ctx.db
+        .query("availabilityLinks")
+        .withIndex("by_profileId", (q) => q.eq("profileId", viewer._id))
+        .take(PROFILE_AVAILABILITY_LINK_SCAN_LIMIT),
+    ]);
+
+    const associatedScheduleIds = new Set<string>();
+    for (const schedule of createdSchedules) {
+      associatedScheduleIds.add(schedule._id);
+    }
+    for (const selection of selections) {
+      associatedScheduleIds.add(selection.scheduleId);
+    }
+    const availabilityLinksWithNominations = await Promise.all(
+      availabilityLinks.map(async (link) => ({
+        link,
+        savedAvailability: await ctx.db.get(link.savedAvailabilityId),
+      }))
+    );
+    for (const { link, savedAvailability } of availabilityLinksWithNominations) {
+      if ((savedAvailability?.slots.length ?? 0) > 0) {
+        associatedScheduleIds.add(link.scheduleId);
+      }
+    }
+
+    const listedScheduleIds = new Set(
+      listedSchedules.map((schedule) => schedule._id as string)
+    );
+    const associatedSchedules = await Promise.all(
+      [...associatedScheduleIds]
+        .filter((scheduleId) => !listedScheduleIds.has(scheduleId))
+        .map((scheduleId) =>
+          ctx.db.get(scheduleId as Id<"schedules">)
+        )
+    );
+
+    const candidateSchedules = new Map<string, Doc<"schedules">>();
+    for (const schedule of listedSchedules) {
+      candidateSchedules.set(schedule._id, schedule);
+    }
+    for (const schedule of associatedSchedules) {
+      if (schedule) candidateSchedules.set(schedule._id, schedule);
+    }
+
+    const archiveByScheduleId = new Set(
+      archiveRecords.map((record) => record.scheduleId as string)
+    );
+    const blockedScheduleIds = new Set<string>();
+    await Promise.all(
+      [...candidateSchedules.values()].map(async (schedule) => {
+        if (schedule.creatorProfileId === viewer._id) return;
+        const blocked = await ctx.db
+          .query("blockedProfiles")
+          .withIndex("by_schedule_profile", (q) =>
+            q.eq("scheduleId", schedule._id).eq("profileId", viewer._id)
+          )
+          .unique();
+        if (blocked) blockedScheduleIds.add(schedule._id);
       })
     );
 
-    return enriched;
+    const participated: Doc<"schedules">[] = [];
+    const publicSchedules: Doc<"schedules">[] = [];
+    const archived: Doc<"schedules">[] = [];
+
+    for (const schedule of candidateSchedules.values()) {
+      if (blockedScheduleIds.has(schedule._id)) continue;
+
+      const isParticipated = associatedScheduleIds.has(schedule._id);
+      const isExpired = isPastOneOffSchedule(schedule, args.currentDate);
+      const isManuallyArchived =
+        isParticipated && archiveByScheduleId.has(schedule._id);
+      const isArchived = isExpired || isManuallyArchived;
+
+      if (isArchived) {
+        if (isParticipated) archived.push(schedule);
+      } else if (isParticipated) {
+        participated.push(schedule);
+      } else if (schedule.isPrivate !== true) {
+        publicSchedules.push(schedule);
+      }
+    }
+
+    const enrich = (
+      schedule: Doc<"schedules">,
+      isParticipated: boolean
+    ) => {
+      const isExpired = isPastOneOffSchedule(schedule, args.currentDate);
+      const isManuallyArchived =
+        isParticipated && archiveByScheduleId.has(schedule._id);
+      return enrichSchedule(ctx, schedule, {
+        isParticipated,
+        isArchived: isExpired || isManuallyArchived,
+        isExpired,
+        isManuallyArchived,
+      });
+    };
+
+    const [enrichedParticipated, enrichedPublic, enrichedArchived] =
+      await Promise.all([
+        Promise.all(
+          sortSchedulesAlphabetically(participated)
+            .slice(0, SCHEDULE_LIST_LIMIT)
+            .map((schedule) => enrich(schedule, true))
+        ),
+        Promise.all(
+          sortSchedulesAlphabetically(publicSchedules)
+            .slice(0, SCHEDULE_LIST_LIMIT)
+            .map((schedule) => enrich(schedule, false))
+        ),
+        Promise.all(
+          sortSchedulesAlphabetically(archived)
+            .slice(0, SCHEDULE_LIST_LIMIT)
+            .map((schedule) => enrich(schedule, true))
+        ),
+      ]);
+
+    return {
+      participated: enrichedParticipated,
+      publicSchedules: enrichedPublic,
+      archived: enrichedArchived,
+      hasArchived: enrichedArchived.length > 0,
+    };
+  },
+});
+
+export const getViewerScheduleState = query({
+  args: {
+    scheduleId: v.id("schedules"),
+    anonymousId: v.optional(v.string()),
+    currentDate: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const [schedule, viewer] = await Promise.all([
+      ctx.db.get(args.scheduleId),
+      getCallerProfile(ctx, args.anonymousId),
+    ]);
+    if (!schedule || !viewer) {
+      return {
+        canArchive: false,
+        isArchived: false,
+        isExpired: false,
+        isManuallyArchived: false,
+      };
+    }
+
+    const isCreator = schedule.creatorProfileId === viewer._id;
+    const [isParticipant, blocked, archiveRecord] = await Promise.all([
+      isCreator
+        ? Promise.resolve(false)
+        : hasScheduleParticipation(ctx, schedule._id, viewer._id),
+      isCreator
+        ? Promise.resolve(null)
+        : ctx.db
+            .query("blockedProfiles")
+            .withIndex("by_schedule_profile", (q) =>
+              q.eq("scheduleId", schedule._id).eq("profileId", viewer._id)
+            )
+            .unique(),
+      ctx.db
+        .query("scheduleArchives")
+        .withIndex("by_schedule_profile", (q) =>
+          q.eq("scheduleId", schedule._id).eq("profileId", viewer._id)
+        )
+        .unique(),
+    ]);
+
+    const canArchive = blocked === null && (isCreator || isParticipant);
+    const isExpired = isPastOneOffSchedule(schedule, args.currentDate);
+    const isManuallyArchived = canArchive && archiveRecord !== null;
+
+    return {
+      canArchive,
+      isArchived: canArchive && (isExpired || isManuallyArchived),
+      isExpired,
+      isManuallyArchived,
+    };
+  },
+});
+
+export const setArchived = mutation({
+  args: {
+    scheduleId: v.id("schedules"),
+    anonymousId: v.optional(v.string()),
+    archived: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const [schedule, viewer] = await Promise.all([
+      ctx.db.get(args.scheduleId),
+      requireCallerProfile(ctx, args.anonymousId),
+    ]);
+    if (!schedule) throw new Error("Schedule not found");
+
+    const isCreator = schedule.creatorProfileId === viewer._id;
+    if (!isCreator) {
+      const [isParticipant, blocked] = await Promise.all([
+        hasScheduleParticipation(ctx, schedule._id, viewer._id),
+        ctx.db
+          .query("blockedProfiles")
+          .withIndex("by_schedule_profile", (q) =>
+            q.eq("scheduleId", schedule._id).eq("profileId", viewer._id)
+          )
+          .unique(),
+      ]);
+      if (!isParticipant || blocked) throw new Error("Unauthorized");
+    }
+
+    const existing = await ctx.db
+      .query("scheduleArchives")
+      .withIndex("by_schedule_profile", (q) =>
+        q.eq("scheduleId", schedule._id).eq("profileId", viewer._id)
+      )
+      .unique();
+
+    if (args.archived) {
+      if (existing) {
+        await ctx.db.patch(existing._id, { archivedAt: Date.now() });
+        return existing._id;
+      }
+      return await ctx.db.insert("scheduleArchives", {
+        scheduleId: schedule._id,
+        profileId: viewer._id,
+        archivedAt: Date.now(),
+      });
+    }
+
+    if (existing) await ctx.db.delete(existing._id);
+    return null;
   },
 });
 
@@ -620,6 +927,14 @@ async function cleanupRemovedScheduleBatch(
     await ctx.db.delete(record._id);
   }
 
+  const archives = await ctx.db
+    .query("scheduleArchives")
+    .withIndex("by_schedule", (q) => q.eq("scheduleId", scheduleId))
+    .take(SCHEDULE_CLEANUP_BATCH_SIZE);
+  for (const archive of archives) {
+    await ctx.db.delete(archive._id);
+  }
+
   const dstLogs = await ctx.db
     .query("dstCheckLog")
     .withIndex("by_schedule_profile_date", (q) => q.eq("scheduleId", scheduleId))
@@ -655,6 +970,7 @@ async function cleanupRemovedScheduleBatch(
     selections.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     links.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     blocked.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
+    archives.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     dstLogs.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     discordLinks.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     invalidations.length === SCHEDULE_CLEANUP_BATCH_SIZE;
@@ -670,6 +986,7 @@ async function cleanupRemovedScheduleBatch(
       selections.length +
       links.length +
       blocked.length +
+      archives.length +
       dstLogs.length +
       discordLinks.length +
       invalidations.length,
@@ -866,6 +1183,14 @@ export const removeParticipant = mutation({
       await ctx.db.delete(link._id);
     }
 
+    const archive = await ctx.db
+      .query("scheduleArchives")
+      .withIndex("by_schedule_profile", (q) =>
+        q.eq("scheduleId", args.scheduleId).eq("profileId", args.profileId)
+      )
+      .unique();
+    if (archive) await ctx.db.delete(archive._id);
+
     await invalidateSelectionBatchesForProfile(
       ctx,
       args.scheduleId,
@@ -930,6 +1255,14 @@ export const blockParticipant = mutation({
     if (link) {
       await ctx.db.delete(link._id);
     }
+
+    const archive = await ctx.db
+      .query("scheduleArchives")
+      .withIndex("by_schedule_profile", (q) =>
+        q.eq("scheduleId", args.scheduleId).eq("profileId", args.profileId)
+      )
+      .unique();
+    if (archive) await ctx.db.delete(archive._id);
 
     await invalidateSelectionBatchesForProfile(
       ctx,

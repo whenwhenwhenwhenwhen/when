@@ -19,6 +19,7 @@ import type * as dstNotifications from "../dstNotifications.js";
 import type * as http from "../http.js";
 import type * as profileImages from "../profileImages.js";
 import type * as savedAvailabilities from "../savedAvailabilities.js";
+import type * as scheduleMemberships from "../scheduleMemberships.js";
 import type * as schedules from "../schedules.js";
 import type * as selections from "../selections.js";
 import type * as users from "../users.js";
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   profileImages: typeof profileImages;
   savedAvailabilities: typeof savedAvailabilities;
+  scheduleMemberships: typeof scheduleMemberships;
   schedules: typeof schedules;
   selections: typeof selections;
   users: typeof users;

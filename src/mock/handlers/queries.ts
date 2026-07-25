@@ -40,21 +40,198 @@ function currentUserProfile(args: Args) {
 // schedules
 // ---------------------------------------------------------------------------
 
-function schedulesList() {
-  const schedules = store
-    .query("schedules")
-    // Match Convex: unlisted schedules are hidden from list views, not link-gated.
-    .filter((s) => !s.isPrivate)
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+function getViewerProfile(args: Args) {
+  if (!args.anonymousId) return null;
+  return (
+    store
+      .query("userProfiles")
+      .find((profile) => profile.anonymousId === args.anonymousId) ?? null
+  );
+}
 
-  return schedules.map((schedule) => {
-    const creator = store.get("userProfiles", schedule.creatorProfileId);
+function hasNominations(scheduleId: string, profileId: string) {
+  return (
+    store
+      .query("selections")
+      .some(
+        (selection) =>
+          selection.scheduleId === scheduleId &&
+          selection.profileId === profileId,
+      ) ||
+    store.query("availabilityLinks").some((link) => {
+      if (link.scheduleId !== scheduleId || link.profileId !== profileId) {
+        return false;
+      }
+      const savedAvailability = store.get(
+        "savedAvailabilities",
+        link.savedAvailabilityId,
+      );
+      return (savedAvailability?.slots.length ?? 0) > 0;
+    })
+  );
+}
+
+function isBlocked(scheduleId: string, profileId: string) {
+  return store
+    .query("blockedProfiles")
+    .some(
+      (blocked) =>
+        blocked.scheduleId === scheduleId &&
+        blocked.profileId === profileId,
+    );
+}
+
+function isPastOneOff(schedule: Args, currentDate: string) {
+  return (
+    schedule.type === "one-off" &&
+    !!schedule.dateRangeEnd &&
+    schedule.dateRangeEnd < currentDate
+  );
+}
+
+function enrichListedSchedule(
+  schedule: Args,
+  state: {
+    isParticipated: boolean;
+    isArchived: boolean;
+    isExpired: boolean;
+    isManuallyArchived: boolean;
+  },
+) {
+  const creator = store.get("userProfiles", schedule.creatorProfileId);
+  return {
+    ...schedule,
+    ...state,
+    creatorName: creator?.displayName ?? "Unknown",
+    creatorImage: creator?.profileImageUrl,
+  };
+}
+
+function schedulesList(args: Args) {
+  const viewer = getViewerProfile(args);
+  const publicSchedules = store
+    .query("schedules")
+    .filter((schedule) => !schedule.isPrivate);
+
+  if (!viewer) {
     return {
-      ...schedule,
-      creatorName: creator?.displayName ?? "Unknown",
-      creatorImage: creator?.profileImageUrl,
+      participated: [],
+      publicSchedules: publicSchedules
+        .filter((schedule) => !isPastOneOff(schedule, args.currentDate))
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .map((schedule) =>
+          enrichListedSchedule(schedule, {
+            isParticipated: false,
+            isArchived: false,
+            isExpired: false,
+            isManuallyArchived: false,
+          }),
+        ),
+      archived: [],
+      hasArchived: false,
     };
-  });
+  }
+
+  const candidates = new Map(
+    publicSchedules.map((schedule) => [schedule._id, schedule]),
+  );
+  for (const schedule of store.query("schedules")) {
+    if (
+      schedule.creatorProfileId === viewer._id ||
+      hasNominations(schedule._id, viewer._id)
+    ) {
+      candidates.set(schedule._id, schedule);
+    }
+  }
+
+  const archives = store
+    .query("scheduleArchives")
+    .filter((archive) => archive.profileId === viewer._id);
+  const archivedIds = new Set(archives.map((archive) => archive.scheduleId));
+
+  const participated: Args[] = [];
+  const remainingPublic: Args[] = [];
+  const archived: Args[] = [];
+
+  for (const schedule of candidates.values()) {
+    const isCreator = schedule.creatorProfileId === viewer._id;
+    const isParticipated =
+      isCreator || hasNominations(schedule._id, viewer._id);
+    if (!isCreator && isBlocked(schedule._id, viewer._id)) continue;
+
+    const isExpired = isPastOneOff(schedule, args.currentDate);
+    const isManuallyArchived =
+      isParticipated && archivedIds.has(schedule._id);
+    if (isExpired || isManuallyArchived) {
+      if (isParticipated) archived.push(schedule);
+    } else if (isParticipated) {
+      participated.push(schedule);
+    } else if (!schedule.isPrivate) {
+      remainingPublic.push(schedule);
+    }
+  }
+
+  const enrich = (schedule: Args, isParticipated: boolean) => {
+    const isExpired = isPastOneOff(schedule, args.currentDate);
+    const isManuallyArchived =
+      isParticipated && archivedIds.has(schedule._id);
+    return enrichListedSchedule(schedule, {
+      isParticipated,
+      isArchived: isExpired || isManuallyArchived,
+      isExpired,
+      isManuallyArchived,
+    });
+  };
+  const byTitle = (a: Args, b: Args) => a.title.localeCompare(b.title);
+  const enrichedArchived = archived
+    .sort(byTitle)
+    .map((schedule) => enrich(schedule, true));
+
+  return {
+    participated: participated
+      .sort(byTitle)
+      .map((schedule) => enrich(schedule, true)),
+    publicSchedules: remainingPublic
+      .sort(byTitle)
+      .map((schedule) => enrich(schedule, false)),
+    archived: enrichedArchived,
+    hasArchived: enrichedArchived.length > 0,
+  };
+}
+
+function getViewerScheduleState(args: Args) {
+  const viewer = getViewerProfile(args);
+  const schedule = store.get("schedules", args.scheduleId);
+  if (!viewer || !schedule) {
+    return {
+      canArchive: false,
+      isArchived: false,
+      isExpired: false,
+      isManuallyArchived: false,
+    };
+  }
+
+  const isCreator = schedule.creatorProfileId === viewer._id;
+  const canArchive =
+    (isCreator || hasNominations(schedule._id, viewer._id)) &&
+    (isCreator || !isBlocked(schedule._id, viewer._id));
+  const isExpired = isPastOneOff(schedule, args.currentDate);
+  const isManuallyArchived =
+    canArchive &&
+    store
+      .query("scheduleArchives")
+      .some(
+        (archive) =>
+          archive.scheduleId === schedule._id &&
+          archive.profileId === viewer._id,
+      );
+
+  return {
+    canArchive,
+    isArchived: canArchive && (isExpired || isManuallyArchived),
+    isExpired,
+    isManuallyArchived,
+  };
 }
 
 function schedulesGet(args: Args) {
@@ -206,6 +383,7 @@ export const queryHandlers: Record<string, Handler> = {
   "users:currentUserProfile": currentUserProfile,
   "schedules:list": schedulesList,
   "schedules:get": schedulesGet,
+  "schedules:getViewerScheduleState": getViewerScheduleState,
   "schedules:getBlockedProfiles": getBlockedProfiles,
   "savedAvailabilities:listForProfile": listForProfile,
 };

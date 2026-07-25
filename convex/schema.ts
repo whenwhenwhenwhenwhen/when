@@ -75,6 +75,18 @@ export default defineSchema({
     blockedAt: v.number(),
   })
     .index("by_schedule", ["scheduleId"])
+    .index("by_profileId", ["profileId"])
+    .index("by_schedule_profile", ["scheduleId", "profileId"]),
+
+  // Per-user archive state. Archiving never changes the schedule for anyone
+  // else and is independent of one-off schedules that archive automatically.
+  scheduleArchives: defineTable({
+    scheduleId: v.id("schedules"),
+    profileId: v.id("userProfiles"),
+    archivedAt: v.number(),
+  })
+    .index("by_schedule", ["scheduleId"])
+    .index("by_profileId", ["profileId"])
     .index("by_schedule_profile", ["scheduleId", "profileId"]),
 
   selectionBatchInvalidations: defineTable({

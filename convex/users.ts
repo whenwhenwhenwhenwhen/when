@@ -97,6 +97,61 @@ async function moveProfileData(
       });
     }
   }
+
+  while (true) {
+    const blockedProfiles = await ctx.db
+      .query("blockedProfiles")
+      .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
+      .take(PROFILE_MERGE_BATCH_SIZE);
+
+    if (blockedProfiles.length === 0) break;
+
+    for (const blocked of blockedProfiles) {
+      const existing = await ctx.db
+        .query("blockedProfiles")
+        .withIndex("by_schedule_profile", (q) =>
+          q
+            .eq("scheduleId", blocked.scheduleId)
+            .eq("profileId", toProfileId)
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.delete(blocked._id);
+      } else {
+        await ctx.db.patch(blocked._id, { profileId: toProfileId });
+      }
+    }
+  }
+
+  while (true) {
+    const archives = await ctx.db
+      .query("scheduleArchives")
+      .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
+      .take(PROFILE_MERGE_BATCH_SIZE);
+
+    if (archives.length === 0) break;
+
+    for (const archive of archives) {
+      const existing = await ctx.db
+        .query("scheduleArchives")
+        .withIndex("by_schedule_profile", (q) =>
+          q
+            .eq("scheduleId", archive.scheduleId)
+            .eq("profileId", toProfileId)
+        )
+        .unique();
+      if (existing) {
+        if (archive.archivedAt > existing.archivedAt) {
+          await ctx.db.patch(existing._id, {
+            archivedAt: archive.archivedAt,
+          });
+        }
+        await ctx.db.delete(archive._id);
+      } else {
+        await ctx.db.patch(archive._id, { profileId: toProfileId });
+      }
+    }
+  }
 }
 
 // Get or create an anonymous user profile

@@ -110,7 +110,71 @@ function schedulesRemove(args: Args) {
   for (const b of store.query("blockedProfiles").filter((bp) => bp.scheduleId === args.scheduleId)) {
     store.remove("blockedProfiles", b._id);
   }
+  for (const archive of store
+    .query("scheduleArchives")
+    .filter((item) => item.scheduleId === args.scheduleId)) {
+    store.remove("scheduleArchives", archive._id);
+  }
   store.remove("schedules", args.scheduleId);
+}
+
+function setArchived(args: Args) {
+  const profile = args.anonymousId
+    ? store
+        .query("userProfiles")
+        .find((item) => item.anonymousId === args.anonymousId)
+    : undefined;
+  const schedule = store.get("schedules", args.scheduleId);
+  if (!profile || !schedule) return;
+
+  const isCreator = schedule.creatorProfileId === profile._id;
+  const hasNominations =
+    store
+      .query("selections")
+      .some(
+        (selection) =>
+          selection.scheduleId === schedule._id &&
+          selection.profileId === profile._id,
+      ) ||
+    store.query("availabilityLinks").some((link) => {
+      if (
+        link.scheduleId !== schedule._id ||
+        link.profileId !== profile._id
+      ) {
+        return false;
+      }
+      const savedAvailability = store.get(
+        "savedAvailabilities",
+        link.savedAvailabilityId,
+      );
+      return (savedAvailability?.slots.length ?? 0) > 0;
+    });
+  const isBlocked = store
+    .query("blockedProfiles")
+    .some(
+      (blocked) =>
+        blocked.scheduleId === schedule._id &&
+        blocked.profileId === profile._id,
+    );
+  if ((!isCreator && !hasNominations) || (!isCreator && isBlocked)) return;
+
+  const existing = store
+    .query("scheduleArchives")
+    .find(
+      (archive) =>
+        archive.scheduleId === schedule._id &&
+        archive.profileId === profile._id,
+    );
+  if (args.archived && !existing) {
+    return store.insert("scheduleArchives", {
+      scheduleId: schedule._id,
+      profileId: profile._id,
+      archivedAt: Date.now(),
+    });
+  }
+  if (!args.archived && existing) {
+    store.remove("scheduleArchives", existing._id);
+  }
 }
 
 function setDisallowedSlots(args: Args) {
@@ -189,6 +253,15 @@ function removeParticipant(args: Args) {
     .query("selections")
     .filter((s) => s.scheduleId === args.scheduleId && s.profileId === args.profileId)) {
     store.remove("selections", sel._id);
+  }
+  for (const archive of store
+    .query("scheduleArchives")
+    .filter(
+      (item) =>
+        item.scheduleId === args.scheduleId &&
+        item.profileId === args.profileId,
+    )) {
+    store.remove("scheduleArchives", archive._id);
   }
 }
 
@@ -337,6 +410,7 @@ export const mutationHandlers: Record<string, Handler> = {
   "schedules:create": schedulesCreate,
   "schedules:update": schedulesUpdate,
   "schedules:remove": schedulesRemove,
+  "schedules:setArchived": setArchived,
   "schedules:setDisallowedSlots": setDisallowedSlots,
   "schedules:setLockedSlots": setLockedSlots,
   "schedules:clearDisallowedSlots": clearDisallowedSlots,
