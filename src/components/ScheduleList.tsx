@@ -43,6 +43,9 @@ function ScheduleCards({ schedules }: { schedules: ListedSchedule[] }) {
                 >
                   {schedule.type === "one-off" ? "One-off" : "Recurring"}
                 </span>
+                {schedule.isPrivate && (
+                  <span className={styles.miniBadge}>Unlisted</span>
+                )}
                 {schedule.isArchived && (
                   <span className={styles.miniBadge}>
                     {schedule.isExpired ? "Ended" : "Archived"}
