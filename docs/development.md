@@ -78,6 +78,13 @@ merge anonymous activity into the authenticated profile.
 
 - One-off schedules store specific dates and absolute time references.
 - Recurring schedules store weekly wall-clock slots with user timezone context.
+- `schedules.creatorTimezone` is the immutable coordinate anchor for date
+  ranges, allow/disallow limits, and locked slots. A creator changing their
+  profile timezone changes their view, not the meaning of existing schedule
+  cells.
+- Each participant selection retains the timezone in which that cell was
+  created. Existing cells keep that address after a settings change; new cells
+  use the participant or linked saved-availability timezone.
 - Calendar sync converts external events into busy slots for selected
   schedules.
 - Creators can disallow cells, nominate cells, and lock final times.

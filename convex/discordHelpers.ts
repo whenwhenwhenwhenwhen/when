@@ -3,6 +3,7 @@
 // V8 runtime (http.ts) and node runtime alike.
 
 import { DateTime } from "luxon";
+import { cellKey, convertCellToTimezone } from "./timezone";
 
 // ---------------------------------------------------------------------------
 // Ed25519 signature verification (Discord requirement for interaction webhooks)
@@ -180,9 +181,12 @@ export type SummaryInput = {
     profileId: string;
     dayKey: string;
     timeSlot: string;
+    timezone: string;
     state: SelectionState;
     isException?: boolean;
+    exceptionDate?: string;
   }[];
+  referenceDate?: string;
   // Where to point the View Schedule button
   appBaseUrl: string;
 };
@@ -263,9 +267,29 @@ function formatSlotLabel(
   return `${dt.toFormat("EEE MMM d")} ${timeSlot}`;
 }
 
+function normalizedSelections(input: SummaryInput) {
+  const referenceDate = input.referenceDate
+    ? DateTime.fromISO(input.referenceDate, {
+        zone: input.schedule.creatorTimezone,
+      })
+    : DateTime.now().setZone(input.schedule.creatorTimezone);
+
+  return input.selections.map((selection) => ({
+    ...selection,
+    ...convertCellToTimezone(
+      input.schedule.type,
+      selection,
+      selection.timezone,
+      input.schedule.creatorTimezone,
+      referenceDate
+    ),
+  }));
+}
+
 /** Build a snapshot string used to detect "did anything meaningful change" */
 export function buildLockedSlotSnapshot(input: SummaryInput): string {
   const locked = input.schedule.lockedSlots ?? [];
+  const selections = normalizedSelections(input);
   // Sort for stability
   const sortedLocked = [...locked].sort((a, b) =>
     (a.dayKey + a.timeSlot).localeCompare(b.dayKey + b.timeSlot)
@@ -273,7 +297,7 @@ export function buildLockedSlotSnapshot(input: SummaryInput): string {
 
   const lines: string[] = [];
   for (const slot of sortedLocked) {
-    const participants = input.selections
+    const participants = selections
       .filter(
         (s) =>
           !s.isException &&
@@ -298,8 +322,9 @@ export function buildLockedSlotSnapshot(input: SummaryInput): string {
 export function buildSummaryMessage(
   input: SummaryInput
 ): Record<string, unknown> {
-  const { schedule, profileNames, selections } = input;
+  const { schedule, profileNames } = input;
   const lockedSlots = schedule.lockedSlots ?? [];
+  const normalized = normalizedSelections(input);
 
   // Build "Locked Times" field
   let lockedField = "";
@@ -317,7 +342,7 @@ export function buildSummaryMessage(
         const canDo: string[] = [];
         const cantDo: string[] = [];
         const maybe: string[] = [];
-        for (const s of selections) {
+        for (const s of normalized) {
           if (s.isException) continue;
           if (s.dayKey !== slot.dayKey || s.timeSlot !== slot.timeSlot) continue;
           const name = profileNames[s.profileId] ?? "?";
@@ -337,10 +362,10 @@ export function buildSummaryMessage(
 
   // Build "Top Nominations" field — most-popular cells
   const tally = new Map<string, { dayKey: string; timeSlot: string; canDo: string[]; maybe: string[] }>();
-  for (const s of selections) {
+  for (const s of normalized) {
     if (s.isException) continue;
     if (s.state === "cant-do") continue;
-    const key = `${s.dayKey}|${s.timeSlot}`;
+    const key = cellKey(s);
     const entry = tally.get(key) ?? {
       dayKey: s.dayKey,
       timeSlot: s.timeSlot,
@@ -383,7 +408,9 @@ export function buildSummaryMessage(
       { name: "Locked-in times", value: lockedField || "—", inline: false },
       { name: "Top nominations", value: nominationsField || "—", inline: false },
     ],
-    footer: { text: `Schedule type: ${schedule.type}` },
+    footer: {
+      text: `Schedule type: ${schedule.type} · Times: ${schedule.creatorTimezone}`,
+    },
     timestamp: new Date().toISOString(),
   });
 

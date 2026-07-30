@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { DateTime } from "luxon";
 import {
   query,
   mutation,
@@ -181,16 +182,20 @@ export const buildSummaryInput = internalQuery({
       profileId: string;
       dayKey: string;
       timeSlot: string;
+      timezone: string;
       state: SummaryInput["selections"][number]["state"];
       isException?: boolean;
+      exceptionDate?: string;
     };
 
     const flat: FlatSelection[] = dbSelections.map((s) => ({
       profileId: s.profileId as unknown as string,
       dayKey: s.dayKey,
       timeSlot: s.timeSlot,
+      timezone: s.timezone,
       state: s.state,
       isException: s.isException,
+      exceptionDate: s.exceptionDate,
     }));
 
     // Add virtual selections from linked saved availabilities
@@ -207,6 +212,7 @@ export const buildSummaryInput = internalQuery({
           profileId: link.profileId as unknown as string,
           dayKey: slot.dayKey,
           timeSlot: slot.timeSlot,
+          timezone: savedAvail.timezone,
           state: slot.state,
         });
       }
@@ -233,6 +239,9 @@ export const buildSummaryInput = internalQuery({
       },
       profileNames,
       selections: flat,
+      referenceDate: DateTime.now()
+        .setZone(schedule.creatorTimezone)
+        .toISODate()!,
       appBaseUrl: getAppBaseUrl(),
     };
   },

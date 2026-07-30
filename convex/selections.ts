@@ -20,6 +20,9 @@ const batchSelectionValidator = v.object({
   ),
   isException: v.optional(v.boolean()),
   exceptionDate: v.optional(v.string()),
+  timezone: v.optional(v.string()),
+  scheduleDayKey: v.optional(v.string()),
+  scheduleTimeSlot: v.optional(v.string()),
 });
 
 type BatchSelection = {
@@ -28,6 +31,9 @@ type BatchSelection = {
   state: "can-do" | "cant-do" | "maybe" | "blank";
   isException?: boolean;
   exceptionDate?: string;
+  timezone?: string;
+  scheduleDayKey?: string;
+  scheduleTimeSlot?: string;
 };
 
 function getDiscordDebounceMs(): number {
@@ -239,7 +245,8 @@ async function getExistingSelectionsForCell(
   dayKey: string,
   timeSlot: string,
   isException: boolean | undefined,
-  exceptionDate: string | undefined
+  exceptionDate: string | undefined,
+  timezone: string | undefined
 ) {
   const queryCell = (exceptionValue: true | false | undefined) =>
     ctx.db.query("selections").withIndex(
@@ -255,15 +262,21 @@ async function getExistingSelectionsForCell(
     );
 
   if (isException) {
-    return await queryCell(true).take(10);
+    const selections = await queryCell(true).take(20);
+    return timezone
+      ? selections.filter((selection) => selection.timezone === timezone)
+      : selections;
   }
 
   const [missingExceptionFlag, falseExceptionFlag] = await Promise.all([
-    queryCell(undefined).take(10),
-    queryCell(false).take(10),
+    queryCell(undefined).take(20),
+    queryCell(false).take(20),
   ]);
 
-  return [...missingExceptionFlag, ...falseExceptionFlag];
+  const selections = [...missingExceptionFlag, ...falseExceptionFlag];
+  return timezone
+    ? selections.filter((selection) => selection.timezone === timezone)
+    : selections;
 }
 
 async function getCalendarOverridesForCell(
@@ -271,9 +284,10 @@ async function getCalendarOverridesForCell(
   scheduleId: Id<"schedules">,
   profileId: Id<"userProfiles">,
   dayKey: string,
-  timeSlot: string
+  timeSlot: string,
+  timezone: string | undefined
 ) {
-  return await ctx.db
+  const overrides = await ctx.db
     .query("calendarOverrides")
     .withIndex("by_profile_schedule_dayKey_timeSlot", (q) =>
       q
@@ -283,6 +297,12 @@ async function getCalendarOverridesForCell(
         .eq("timeSlot", timeSlot)
     )
     .take(20);
+  return timezone
+    ? overrides.filter(
+        (override) =>
+          override.timezone === undefined || override.timezone === timezone
+      )
+    : overrides;
 }
 
 async function createCalendarOverrides(
@@ -296,7 +316,7 @@ async function createCalendarOverrides(
   for (const selection of calendarSelections) {
     if (!selection.externalEventId) continue;
 
-    const overrideExists = await ctx.db
+    const overrideCandidates = await ctx.db
       .query("calendarOverrides")
       .withIndex("by_profile_schedule_externalEventId_dayKey_timeSlot", (q) =>
         q
@@ -306,7 +326,12 @@ async function createCalendarOverrides(
           .eq("dayKey", dayKey)
           .eq("timeSlot", timeSlot)
       )
-      .first();
+      .take(20);
+    const overrideExists = overrideCandidates.some(
+      (override) =>
+        override.timezone === undefined ||
+        override.timezone === selection.timezone
+    );
 
     if (!overrideExists) {
       await ctx.db.insert("calendarOverrides", {
@@ -315,6 +340,9 @@ async function createCalendarOverrides(
         externalEventId: selection.externalEventId,
         dayKey,
         timeSlot,
+        timezone: selection.timezone,
+        isException: selection.isException,
+        exceptionDate: selection.exceptionDate,
       });
     }
   }
@@ -336,7 +364,8 @@ async function restoreCalendarBaseline(
     args.scheduleId,
     args.profileId,
     args.dayKey,
-    args.timeSlot
+    args.timeSlot,
+    args.timezone
   );
   const calendarSelection = args.existing.find(
     (selection) =>
@@ -388,6 +417,9 @@ function compactSelections(selections: BatchSelection[]): BatchSelection[] {
       selection.timeSlot,
       selection.isException === true ? "exception" : "base",
       selection.exceptionDate ?? "",
+      selection.timezone ?? "",
+      selection.scheduleDayKey ?? "",
+      selection.scheduleTimeSlot ?? "",
     ].join("|");
     byCell.set(key, selection);
   }
@@ -458,6 +490,8 @@ export const set = mutation({
     ),
     isException: v.optional(v.boolean()),
     exceptionDate: v.optional(v.string()),
+    scheduleDayKey: v.optional(v.string()),
+    scheduleTimeSlot: v.optional(v.string()),
     anonymousId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -476,14 +510,24 @@ export const set = mutation({
 
     // Guard: reject nominations on disallowed cells (creator auto-allows)
     const schedule = access.schedule;
+    const scheduleDayKey = args.scheduleDayKey ?? args.dayKey;
+    const scheduleTimeSlot = args.scheduleTimeSlot ?? args.timeSlot;
     if (
       schedule &&
-      isSlotDisallowed(schedule.disallowedSlots, args.dayKey, args.timeSlot)
+      isSlotDisallowed(
+        schedule.disallowedSlots,
+        scheduleDayKey,
+        scheduleTimeSlot
+      )
     ) {
       if (access.actorIsCreator) {
         await ctx.db.patch(args.scheduleId, {
           disallowedSlots: (schedule.disallowedSlots || []).filter(
-            (s) => !(s.dayKey === args.dayKey && s.timeSlot === args.timeSlot)
+            (s) =>
+              !(
+                s.dayKey === scheduleDayKey &&
+                s.timeSlot === scheduleTimeSlot
+              )
           ),
         });
       } else {
@@ -496,7 +540,8 @@ export const set = mutation({
       if (
         schedule.dateRangeStart &&
         schedule.dateRangeEnd &&
-        (args.dayKey < schedule.dateRangeStart || args.dayKey > schedule.dateRangeEnd)
+        (scheduleDayKey < schedule.dateRangeStart ||
+          scheduleDayKey > schedule.dateRangeEnd)
       ) {
         return null;
       }
@@ -519,7 +564,7 @@ export const set = mutation({
           args.timezone
         );
         await notifyDiscordIfLockedImpacted(ctx, args.scheduleId, [
-          { dayKey: args.dayKey, timeSlot: args.timeSlot },
+          { dayKey: scheduleDayKey, timeSlot: scheduleTimeSlot },
         ]);
         return null;
       }
@@ -533,7 +578,8 @@ export const set = mutation({
       args.dayKey,
       args.timeSlot,
       args.isException,
-      args.exceptionDate
+      args.exceptionDate,
+      args.timezone
     );
 
     const calendarSelections = existing.filter(
@@ -578,7 +624,7 @@ export const set = mutation({
     }
 
     await notifyDiscordIfLockedImpacted(ctx, args.scheduleId, [
-      { dayKey: args.dayKey, timeSlot: args.timeSlot },
+      { dayKey: scheduleDayKey, timeSlot: scheduleTimeSlot },
     ]);
     return resultId;
   },
@@ -594,6 +640,8 @@ export const remove = mutation({
     isException: v.optional(v.boolean()),
     exceptionDate: v.optional(v.string()),
     timezone: v.optional(v.string()),
+    scheduleDayKey: v.optional(v.string()),
+    scheduleTimeSlot: v.optional(v.string()),
     anonymousId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -612,9 +660,15 @@ export const remove = mutation({
 
     // Guard: reject changes on disallowed cells (skip for creator)
     const schedule = access.schedule;
+    const scheduleDayKey = args.scheduleDayKey ?? args.dayKey;
+    const scheduleTimeSlot = args.scheduleTimeSlot ?? args.timeSlot;
     if (
       schedule &&
-      isSlotDisallowed(schedule.disallowedSlots, args.dayKey, args.timeSlot)
+      isSlotDisallowed(
+        schedule.disallowedSlots,
+        scheduleDayKey,
+        scheduleTimeSlot
+      )
     ) {
       if (!access.actorIsCreator) {
         return;
@@ -626,7 +680,8 @@ export const remove = mutation({
       if (
         schedule.dateRangeStart &&
         schedule.dateRangeEnd &&
-        (args.dayKey < schedule.dateRangeStart || args.dayKey > schedule.dateRangeEnd)
+        (scheduleDayKey < schedule.dateRangeStart ||
+          scheduleDayKey > schedule.dateRangeEnd)
       ) {
         return;
       }
@@ -647,7 +702,7 @@ export const remove = mutation({
           args.timeSlot
         );
         await notifyDiscordIfLockedImpacted(ctx, args.scheduleId, [
-          { dayKey: args.dayKey, timeSlot: args.timeSlot },
+          { dayKey: scheduleDayKey, timeSlot: scheduleTimeSlot },
         ]);
         return;
       }
@@ -660,7 +715,8 @@ export const remove = mutation({
       args.dayKey,
       args.timeSlot,
       args.isException,
-      args.exceptionDate
+      args.exceptionDate,
+      args.timezone
     );
 
     if (
@@ -674,7 +730,7 @@ export const remove = mutation({
       })
     ) {
       await notifyDiscordIfLockedImpacted(ctx, args.scheduleId, [
-        { dayKey: args.dayKey, timeSlot: args.timeSlot },
+        { dayKey: scheduleDayKey, timeSlot: scheduleTimeSlot },
       ]);
       return;
     }
@@ -684,7 +740,7 @@ export const remove = mutation({
     }
 
     await notifyDiscordIfLockedImpacted(ctx, args.scheduleId, [
-      { dayKey: args.dayKey, timeSlot: args.timeSlot },
+      { dayKey: scheduleDayKey, timeSlot: scheduleTimeSlot },
     ]);
   },
 });
@@ -699,6 +755,7 @@ async function applySelectionCell(
   }
 ) {
   const sel = args.selection;
+  const timezone = sel.timezone ?? args.timezone;
   const existing = await getExistingSelectionsForCell(
     ctx,
     args.scheduleId,
@@ -706,7 +763,8 @@ async function applySelectionCell(
     sel.dayKey,
     sel.timeSlot,
     sel.isException,
-    sel.exceptionDate
+    sel.exceptionDate,
+    timezone
   );
 
   if (sel.state === "blank") {
@@ -715,7 +773,7 @@ async function applySelectionCell(
       profileId: args.profileId,
       dayKey: sel.dayKey,
       timeSlot: sel.timeSlot,
-      timezone: args.timezone,
+      timezone,
       existing,
     });
     if (!restoredCalendarBaseline) {
@@ -740,7 +798,7 @@ async function applySelectionCell(
     const primary = calendarSelections[0] ?? existing[0];
     await ctx.db.patch(primary._id, {
       state: sel.state,
-      timezone: args.timezone,
+      timezone,
       ...(calendarSelections.length === 0 ? { source: "manual" as const } : {}),
     });
     for (const selection of existing) {
@@ -754,7 +812,7 @@ async function applySelectionCell(
       profileId: args.profileId,
       dayKey: sel.dayKey,
       timeSlot: sel.timeSlot,
-      timezone: args.timezone,
+      timezone,
       state: sel.state,
       isException: sel.isException,
       exceptionDate: sel.exceptionDate,
@@ -804,15 +862,29 @@ async function processBatchSetSelections(
   }
 
   let disallowed = schedule.disallowedSlots;
+  const getScheduleCell = (selection: BatchSelection) => ({
+    dayKey: selection.scheduleDayKey ?? selection.dayKey,
+    timeSlot: selection.scheduleTimeSlot ?? selection.timeSlot,
+  });
 
   // Creator bypass: auto-allow nominated disallowed cells across the full request.
   if (args.actorIsCreator && disallowed && disallowed.length > 0) {
-    const slotsToAllow = selections.filter(
-      (s) => s.state !== "blank" && isSlotDisallowed(disallowed, s.dayKey, s.timeSlot)
-    );
+    const slotsToAllow = selections
+      .filter((selection) => {
+        const scheduleCell = getScheduleCell(selection);
+        return (
+          selection.state !== "blank" &&
+          isSlotDisallowed(
+            disallowed,
+            scheduleCell.dayKey,
+            scheduleCell.timeSlot
+          )
+        );
+      })
+      .map(getScheduleCell);
     if (slotsToAllow.length > 0) {
       const allowSet = new Set(
-        slotsToAllow.map((s) => `${s.dayKey}|${s.timeSlot}`)
+        slotsToAllow.map((slot) => `${slot.dayKey}|${slot.timeSlot}`)
       );
       disallowed = disallowed.filter(
         (s) => !allowSet.has(`${s.dayKey}|${s.timeSlot}`)
@@ -822,10 +894,20 @@ async function processBatchSetSelections(
     disallowed = undefined;
   }
 
-  const isInDateRange = (dayKey: string): boolean => {
+  const isInDateRange = (selection: BatchSelection): boolean => {
     if (schedule.type !== "one-off") return true;
     if (!schedule.dateRangeStart || !schedule.dateRangeEnd) return true;
+    const { dayKey } = getScheduleCell(selection);
     return dayKey >= schedule.dateRangeStart && dayKey <= schedule.dateRangeEnd;
+  };
+
+  const isSelectionDisallowed = (selection: BatchSelection): boolean => {
+    const scheduleCell = getScheduleCell(selection);
+    return isSlotDisallowed(
+      disallowed,
+      scheduleCell.dayKey,
+      scheduleCell.timeSlot
+    );
   };
 
   const link = await getAvailabilityLink(
@@ -841,8 +923,8 @@ async function processBatchSetSelections(
       const nonExceptionSels = chunk.filter(
         (s) =>
           !s.isException &&
-          !isSlotDisallowed(disallowed, s.dayKey, s.timeSlot) &&
-          isInDateRange(s.dayKey)
+          !isSelectionDisallowed(s) &&
+          isInDateRange(s)
       );
 
       for (const sel of nonExceptionSels) {
@@ -867,8 +949,8 @@ async function processBatchSetSelections(
     }
 
     for (const sel of chunk.filter((s) => s.isException)) {
-      if (isSlotDisallowed(disallowed, sel.dayKey, sel.timeSlot)) continue;
-      if (!isInDateRange(sel.dayKey)) continue;
+      if (isSelectionDisallowed(sel)) continue;
+      if (!isInDateRange(sel)) continue;
       await applySelectionCell(ctx, {
         scheduleId: args.scheduleId,
         profileId: args.profileId,
@@ -878,8 +960,8 @@ async function processBatchSetSelections(
     }
   } else {
     for (const sel of chunk) {
-      if (isSlotDisallowed(disallowed, sel.dayKey, sel.timeSlot)) continue;
-      if (!isInDateRange(sel.dayKey)) continue;
+      if (isSelectionDisallowed(sel)) continue;
+      if (!isInDateRange(sel)) continue;
       await applySelectionCell(ctx, {
         scheduleId: args.scheduleId,
         profileId: args.profileId,
@@ -903,7 +985,7 @@ async function processBatchSetSelections(
   await notifyDiscordIfLockedImpacted(
     ctx,
     args.scheduleId,
-    chunk.map((s) => ({ dayKey: s.dayKey, timeSlot: s.timeSlot }))
+    chunk.map(getScheduleCell)
   );
 
   return { processed: chunk.length, scheduled: remaining.length };

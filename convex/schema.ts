@@ -36,8 +36,9 @@ export default defineSchema({
     dateRangeEnd: v.optional(v.string()), // ISO date
     // For recurring: optional start date
     recurringStartDate: v.optional(v.string()), // ISO date
+    // Immutable coordinate timezone for ranges, limits, and locked slots.
     creatorTimezone: v.string(),
-    // Disallowed time slots (for allow/disallow mode)
+    // Disallowed time slots in creatorTimezone (for allow/disallow mode)
     disallowedSlots: v.optional(
       v.array(
         v.object({
@@ -46,7 +47,7 @@ export default defineSchema({
         })
       )
     ),
-    // Locked-in time slots
+    // Locked-in time slots in creatorTimezone
     lockedSlots: v.optional(
       v.array(
         v.object({
@@ -220,6 +221,9 @@ export default defineSchema({
     externalEventId: v.string(),
     dayKey: v.string(),
     timeSlot: v.string(),
+    timezone: v.optional(v.string()),
+    isException: v.optional(v.boolean()),
+    exceptionDate: v.optional(v.string()),
   })
     .index("by_profile_schedule", ["profileId", "scheduleId"])
     .index("by_profile_event", ["profileId", "externalEventId"])

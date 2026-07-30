@@ -302,6 +302,7 @@ function selectionsSet(args: Args) {
       s.profileId === args.profileId &&
       s.dayKey === args.dayKey &&
       s.timeSlot === args.timeSlot &&
+      s.timezone === args.timezone &&
       (args.isException ? s.isException === true : s.isException !== true) &&
       (args.exceptionDate ? s.exceptionDate === args.exceptionDate : !s.exceptionDate),
   );
@@ -333,6 +334,7 @@ function selectionsRemove(args: Args) {
       s.profileId === args.profileId &&
       s.dayKey === args.dayKey &&
       s.timeSlot === args.timeSlot &&
+      (args.timezone === undefined || s.timezone === args.timezone) &&
       (args.isException ? s.isException === true : s.isException !== true) &&
       (args.exceptionDate ? s.exceptionDate === args.exceptionDate : !s.exceptionDate),
   );
@@ -350,6 +352,7 @@ function selectionsBatchSet(args: Args) {
         profileId: args.profileId,
         dayKey: sel.dayKey,
         timeSlot: sel.timeSlot,
+        timezone: sel.timezone ?? args.timezone,
         isException: sel.isException,
         exceptionDate: sel.exceptionDate,
       });
@@ -359,7 +362,7 @@ function selectionsBatchSet(args: Args) {
         profileId: args.profileId,
         dayKey: sel.dayKey,
         timeSlot: sel.timeSlot,
-        timezone: args.timezone,
+        timezone: sel.timezone ?? args.timezone,
         state: sel.state,
         isException: sel.isException,
         exceptionDate: sel.exceptionDate,

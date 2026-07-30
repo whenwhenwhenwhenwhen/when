@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { DateTime } from "luxon";
 import {
   internalAction,
   internalMutation,
@@ -7,6 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
+import { convertCellToTimezone } from "./timezone";
 
 const SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const SLOT_MS = 30 * 60 * 1000;
@@ -721,9 +723,38 @@ export const processCalendarEvents = internalMutation({
         )
         .collect();
 
-      const overrideSet = new Set(
-        overrides.map((o) => `${o.externalEventId}|${o.dayKey}|${o.timeSlot}`),
-      );
+      const overrideSet = new Set<string>();
+      const overrideReferenceDate = DateTime.now().setZone(timezone);
+      for (const override of overrides) {
+        const normalized = override.timezone
+          ? convertCellToTimezone(
+              schedule.type,
+              override,
+              override.timezone,
+              timezone,
+              overrideReferenceDate
+            )
+          : override;
+        overrideSet.add(
+          `${override.externalEventId}|${normalized.dayKey}|${normalized.timeSlot}`
+        );
+
+        if (
+          override.timezone &&
+          (override.timezone !== timezone ||
+            override.dayKey !== normalized.dayKey ||
+            override.timeSlot !== normalized.timeSlot ||
+            override.exceptionDate !== normalized.exceptionDate)
+        ) {
+          await ctx.db.patch(override._id, {
+            dayKey: normalized.dayKey,
+            timeSlot: normalized.timeSlot,
+            timezone,
+            isException: normalized.isException,
+            exceptionDate: normalized.exceptionDate,
+          });
+        }
+      }
 
       const existingCalendarSelections = await ctx.db
         .query("selections")
@@ -755,6 +786,7 @@ export const processCalendarEvents = internalMutation({
           existingMap.set(key, sel._id);
         }
       }
+      const retainedCalendarSelectionIds = new Set<Id<"selections">>();
 
       for (const event of limitedEvents) {
         const slots = eventToSlots(
@@ -772,10 +804,20 @@ export const processCalendarEvents = internalMutation({
 
           // Check date range for one-off schedules
           if (schedule.type === "one-off") {
+            const scheduleCell = convertCellToTimezone(
+              schedule.type,
+              slot,
+              timezone,
+              schedule.creatorTimezone,
+              DateTime.fromMillis(event.startMs, {
+                zone: schedule.creatorTimezone,
+              })
+            );
             if (
               schedule.dateRangeStart &&
               schedule.dateRangeEnd &&
-              (slot.dayKey < schedule.dateRangeStart || slot.dayKey > schedule.dateRangeEnd)
+              (scheduleCell.dayKey < schedule.dateRangeStart ||
+                scheduleCell.dayKey > schedule.dateRangeEnd)
             ) {
               continue;
             }
@@ -793,6 +835,7 @@ export const processCalendarEvents = internalMutation({
               source: "calendar" as const,
               externalEventId: event.externalEventId,
             });
+            retainedCalendarSelectionIds.add(existingId);
           } else {
             const newId = await ctx.db.insert("selections", {
               scheduleId: schedule._id,
@@ -807,7 +850,21 @@ export const processCalendarEvents = internalMutation({
               externalEventId: event.externalEventId,
             });
             existingMap.set(mapKey, newId);
+            retainedCalendarSelectionIds.add(newId);
           }
+        }
+      }
+
+      // A profile timezone change can move every slot while keeping the same
+      // external event IDs. Remove the old coordinates once the desired
+      // coordinates for those events have been retained or inserted.
+      for (const selection of existingCalendarSelections) {
+        if (
+          selection.externalEventId &&
+          currentEventIds.has(selection.externalEventId) &&
+          !retainedCalendarSelectionIds.has(selection._id)
+        ) {
+          await ctx.db.delete(selection._id);
         }
       }
     }

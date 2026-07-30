@@ -590,6 +590,7 @@ export const get = query({
       profileId: string;
       savedAvailabilityId: string;
       savedAvailabilityName: string;
+      savedAvailabilityTimezone: string;
     }[] = [];
 
     for (const link of links) {
@@ -600,6 +601,7 @@ export const get = query({
         profileId: link.profileId,
         savedAvailabilityId: link.savedAvailabilityId,
         savedAvailabilityName: savedAvail.name,
+        savedAvailabilityTimezone: savedAvail.timezone,
       });
 
       for (const slot of savedAvail.slots) {

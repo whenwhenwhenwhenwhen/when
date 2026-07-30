@@ -1,5 +1,14 @@
 import { DateTime, IANAZone } from "luxon";
 
+export type ScheduleType = "one-off" | "recurring";
+
+export interface TimezoneCell {
+  dayKey: string;
+  timeSlot: string;
+  isException?: boolean;
+  exceptionDate?: string;
+}
+
 /**
  * Get the user's timezone from browser.
  * Uses Intl API which considers client hints.
@@ -21,6 +30,7 @@ export function detectTimezone(): string {
  * @param fromTimezone IANA timezone of the selection
  * @param toTimezone IANA timezone of the viewer
  * @param referenceDate A date in the week being viewed (to get correct DST offset)
+ * @param weekStartDay 0-6 weekday used as the displayed week's first day
  * @returns { dayOfWeek, time, dateTime } in the target timezone
  */
 export function convertRecurringSlot(
@@ -28,14 +38,15 @@ export function convertRecurringSlot(
   time: string,
   fromTimezone: string,
   toTimezone: string,
-  referenceDate: DateTime
+  referenceDate: DateTime,
+  weekStartDay: number = 1
 ): { dayOfWeek: number; time: string; dateTime: DateTime } {
-  // Find the date of the given dayOfWeek in the reference week
-  const refStart = referenceDate.startOf("week"); // Monday in Luxon
-  // Adjust: Luxon weeks start on Monday (1), JS weeks start on Sunday (0)
-  // Convert JS dayOfWeek to Luxon weekday: Sun=7, Mon=1, ..., Sat=6
-  const luxonWeekday = (dayOfWeek === 0 ? 7 : dayOfWeek) as 1 | 2 | 3 | 4 | 5 | 6 | 7;
-  const targetDate = refStart.set({ weekday: luxonWeekday });
+  const referenceDayOfWeek =
+    referenceDate.weekday === 7 ? 0 : referenceDate.weekday;
+  const daysBack = (referenceDayOfWeek - weekStartDay + 7) % 7;
+  const weekStart = referenceDate.minus({ days: daysBack });
+  const dayOffset = (dayOfWeek - weekStartDay + 7) % 7;
+  const targetDate = weekStart.plus({ days: dayOffset });
 
   const [hours, minutes] = time.split(":").map(Number);
 
@@ -89,6 +100,73 @@ export function convertOneOffSlot(
     time: targetDateTime.toFormat("HH:mm"),
     dateTime: targetDateTime,
   };
+}
+
+/**
+ * Convert a stored grid cell between timezones without losing its coordinate
+ * domain. Recurring base cells remain weekday based, while one-off cells and
+ * recurring exceptions remain tied to an exact date.
+ */
+export function convertCellToTimezone(
+  scheduleType: ScheduleType,
+  cell: TimezoneCell,
+  fromTimezone: string,
+  toTimezone: string,
+  referenceDate: DateTime,
+  weekStartDay: number = 1
+): TimezoneCell {
+  if (scheduleType === "one-off") {
+    const converted = convertOneOffSlot(
+      cell.dayKey,
+      cell.timeSlot,
+      fromTimezone,
+      toTimezone
+    );
+    return { dayKey: converted.date, timeSlot: converted.time };
+  }
+
+  if (cell.isException && cell.exceptionDate) {
+    const converted = convertOneOffSlot(
+      cell.exceptionDate,
+      cell.timeSlot,
+      fromTimezone,
+      toTimezone
+    );
+    const dayOfWeek =
+      converted.dateTime.weekday === 7 ? 0 : converted.dateTime.weekday;
+    return {
+      dayKey: String(dayOfWeek),
+      timeSlot: converted.time,
+      isException: true,
+      exceptionDate: converted.date,
+    };
+  }
+
+  const converted = convertRecurringSlot(
+    Number(cell.dayKey),
+    cell.timeSlot,
+    fromTimezone,
+    toTimezone,
+    referenceDate,
+    weekStartDay
+  );
+  return {
+    dayKey: String(converted.dayOfWeek),
+    timeSlot: converted.time,
+  };
+}
+
+export function getCellKey(
+  scheduleType: ScheduleType,
+  cell: TimezoneCell
+): string {
+  if (scheduleType === "one-off") {
+    return `${cell.dayKey}|${cell.timeSlot}`;
+  }
+  if (cell.isException && cell.exceptionDate) {
+    return `exc:${cell.exceptionDate}|${cell.timeSlot}`;
+  }
+  return `${cell.dayKey}|${cell.timeSlot}`;
 }
 
 /**

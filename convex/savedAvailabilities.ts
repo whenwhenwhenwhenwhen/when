@@ -1,6 +1,8 @@
 import { v } from "convex/values";
+import { DateTime } from "luxon";
 import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import { cellKey, convertCellToTimezone } from "./timezone";
 
 type SavedAvailabilitySlot = {
   dayKey: string;
@@ -91,8 +93,31 @@ export const getLinkForSchedule = query({
 async function getEffectiveSlots(
   ctx: { db: MutationCtx["db"] },
   scheduleId: Id<"schedules">,
-  profileId: Id<"userProfiles">
+  profileId: Id<"userProfiles">,
+  targetTimezone: string
 ): Promise<SavedAvailabilitySlot[]> {
+  const referenceDate = DateTime.now().setZone(targetTimezone);
+  const normalizeSlots = (
+    entries: { slot: SavedAvailabilitySlot; timezone: string }[]
+  ) => {
+    const normalized = new Map<string, SavedAvailabilitySlot>();
+    for (const { slot, timezone } of entries) {
+      const converted = convertCellToTimezone(
+        "recurring",
+        slot,
+        timezone,
+        targetTimezone,
+        referenceDate
+      );
+      normalized.set(cellKey(converted), {
+        dayKey: converted.dayKey,
+        timeSlot: converted.timeSlot,
+        state: slot.state,
+      });
+    }
+    return [...normalized.values()];
+  };
+
   // Check if linked to a saved availability
   const existingLink = await ctx.db
     .query("availabilityLinks")
@@ -104,7 +129,12 @@ async function getEffectiveSlots(
   if (existingLink) {
     const linkedAvail = await ctx.db.get(existingLink.savedAvailabilityId);
     if (linkedAvail && sameProfile(linkedAvail.profileId, profileId)) {
-      return linkedAvail.slots;
+      return normalizeSlots(
+        linkedAvail.slots.map((slot) => ({
+          slot,
+          timezone: linkedAvail.timezone,
+        }))
+      );
     }
     return [];
   }
@@ -117,13 +147,17 @@ async function getEffectiveSlots(
     )
     .collect();
 
-  return selections
-    .filter((s) => !s.isException)
-    .map((s) => ({
-      dayKey: s.dayKey,
-      timeSlot: s.timeSlot,
-      state: s.state,
-    }));
+  const recurringSelections = selections.filter((s) => !s.isException);
+  return normalizeSlots(
+    recurringSelections.map((selection) => ({
+      slot: {
+        dayKey: selection.dayKey,
+        timeSlot: selection.timeSlot,
+        state: selection.state,
+      },
+      timezone: selection.timezone,
+    }))
+  );
 }
 
 // Save current schedule selections as a new saved availability and link it
@@ -137,7 +171,12 @@ export const saveNewAndLink = mutation({
     const profile = await requireAuthenticatedProfile(ctx);
 
     // Get effective current slots
-    const slots = await getEffectiveSlots(ctx, args.scheduleId, profile._id);
+    const slots = await getEffectiveSlots(
+      ctx,
+      args.scheduleId,
+      profile._id,
+      args.timezone
+    );
 
     // Remove existing link if any (without copying back)
     const existingLink = await ctx.db
@@ -192,7 +231,12 @@ export const saveOverwriteDefaultAndLink = mutation({
     const profile = await requireAuthenticatedProfile(ctx);
 
     // Get effective current slots
-    const slots = await getEffectiveSlots(ctx, args.scheduleId, profile._id);
+    const slots = await getEffectiveSlots(
+      ctx,
+      args.scheduleId,
+      profile._id,
+      args.timezone
+    );
 
     // Remove existing link if any (without copying back)
     const existingLink = await ctx.db

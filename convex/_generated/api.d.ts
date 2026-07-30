@@ -22,6 +22,7 @@ import type * as savedAvailabilities from "../savedAvailabilities.js";
 import type * as scheduleMemberships from "../scheduleMemberships.js";
 import type * as schedules from "../schedules.js";
 import type * as selections from "../selections.js";
+import type * as timezone from "../timezone.js";
 import type * as users from "../users.js";
 
 import type {
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   scheduleMemberships: typeof scheduleMemberships;
   schedules: typeof schedules;
   selections: typeof selections;
+  timezone: typeof timezone;
   users: typeof users;
 }>;
 

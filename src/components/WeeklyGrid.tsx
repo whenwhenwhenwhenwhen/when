@@ -6,8 +6,9 @@ import {
   formatTimeSlot,
   getDayNames,
   getWeekDates,
-  convertRecurringSlot,
-  convertOneOffSlot,
+  convertCellToTimezone,
+  getCellKey as getTimezoneCellKey,
+  TimezoneCell,
 } from "../lib/timezone";
 import { getDstNotice } from "../lib/dst";
 import { cx } from "../lib/classes";
@@ -60,6 +61,7 @@ interface Props {
   schedule: Schedule;
   profileId: Id<"userProfiles"> | null;
   userTimezone: string;
+  selectionTimezone: string;
   weekStartDay: number;
   selectMode: SelectMode;
   allowMode: AllowMode;
@@ -73,7 +75,10 @@ interface Props {
     timeSlot: string,
     state: CellState,
     isException?: boolean,
-    exceptionDate?: string
+    exceptionDate?: string,
+    storageTimezone?: string,
+    scheduleDayKey?: string,
+    scheduleTimeSlot?: string
   ) => Promise<void>;
   onBatchChange: (
     cells: {
@@ -82,6 +87,9 @@ interface Props {
       state: CellState;
       isException?: boolean;
       exceptionDate?: string;
+      timezone?: string;
+      scheduleDayKey?: string;
+      scheduleTimeSlot?: string;
     }[]
   ) => Promise<void>;
   onCreatorSlotChange: (
@@ -111,10 +119,32 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
+function getSelectionViewerCell(
+  scheduleType: Schedule["type"],
+  selection: Selection,
+  userTimezone: string,
+  referenceDate: DateTime,
+  weekStartDay: number
+): { key: string; cell: TimezoneCell } {
+  const cell = convertCellToTimezone(
+    scheduleType,
+    selection,
+    selection.timezone,
+    userTimezone,
+    referenceDate,
+    weekStartDay
+  );
+  return {
+    key: getTimezoneCellKey(scheduleType, cell),
+    cell,
+  };
+}
+
 export function WeeklyGrid({
   schedule,
   profileId,
   userTimezone,
+  selectionTimezone,
   weekStartDay,
   selectMode,
   allowMode,
@@ -154,6 +184,7 @@ export function WeeklyGrid({
   const [now, setNow] = useState(DateTime.now().setZone(userTimezone));
 
   useEffect(() => {
+    setNow(DateTime.now().setZone(userTimezone));
     const interval = setInterval(() => {
       setNow(DateTime.now().setZone(userTimezone));
     }, 30000);
@@ -173,46 +204,38 @@ export function WeeklyGrid({
   // DST notice
   const dstNotice = getDstNotice(userTimezone, weekDates);
 
-  // Build a map of cell states for the current user
-  const myCellStates = useMemo(() => {
-    const map = new Map<string, CellState>();
-    if (!profileId) return map;
+  // Build display-state and exact storage-address maps for the edited profile.
+  // Keeping the original address matters after a user changes timezone:
+  // existing records must continue to be edited in the timezone they were
+  // created in rather than being reinterpreted in the new profile timezone.
+  const { myCellStates, myCellSelections } = useMemo(() => {
+    const states = new Map<string, CellState>();
+    const selections = new Map<string, Selection>();
+    if (!profileId) {
+      return { myCellStates: states, myCellSelections: selections };
+    }
 
     for (const sel of schedule.selections) {
       if (sel.profileId !== profileId) continue;
-
-      if (schedule.type === "one-off") {
-        const converted = convertOneOffSlot(
-          sel.dayKey,
-          sel.timeSlot,
-          sel.timezone,
-          userTimezone
-        );
-        map.set(`${converted.date}|${converted.time}`, sel.state);
-      } else {
-        if (sel.isException && sel.exceptionDate) {
-          const converted = convertOneOffSlot(
-            sel.exceptionDate,
-            sel.timeSlot,
-            sel.timezone,
-            userTimezone
-          );
-          map.set(`exc:${converted.date}|${converted.time}`, sel.state);
-        } else {
-          const dow = parseInt(sel.dayKey);
-          const converted = convertRecurringSlot(
-            dow,
-            sel.timeSlot,
-            sel.timezone,
-            userTimezone,
-            referenceDate
-          );
-          map.set(`${converted.dayOfWeek}|${converted.time}`, sel.state);
-        }
-      }
+      const { key } = getSelectionViewerCell(
+        schedule.type,
+        sel,
+        userTimezone,
+        referenceDate,
+        weekStartDay
+      );
+      states.set(key, sel.state);
+      selections.set(key, sel);
     }
-    return map;
-  }, [schedule.selections, profileId, userTimezone, schedule.type, referenceDate]);
+    return { myCellStates: states, myCellSelections: selections };
+  }, [
+    schedule.selections,
+    profileId,
+    userTimezone,
+    schedule.type,
+    referenceDate,
+    weekStartDay,
+  ]);
 
   // Build a set of cell keys that are calendar-synced for the current user
   const calendarSyncedCells = useMemo(() => {
@@ -221,22 +244,24 @@ export function WeeklyGrid({
     for (const sel of schedule.selections) {
       if (sel.profileId !== profileId) continue;
       if (sel.source !== "calendar") continue;
-      if (schedule.type === "one-off") {
-        const converted = convertOneOffSlot(sel.dayKey, sel.timeSlot, sel.timezone, userTimezone);
-        set.add(`${converted.date}|${converted.time}`);
-      } else {
-        if (sel.isException && sel.exceptionDate) {
-          const converted = convertOneOffSlot(sel.exceptionDate, sel.timeSlot, sel.timezone, userTimezone);
-          set.add(`exc:${converted.date}|${converted.time}`);
-        } else {
-          const dow = parseInt(sel.dayKey);
-          const converted = convertRecurringSlot(dow, sel.timeSlot, sel.timezone, userTimezone, referenceDate);
-          set.add(`${converted.dayOfWeek}|${converted.time}`);
-        }
-      }
+      const { key } = getSelectionViewerCell(
+        schedule.type,
+        sel,
+        userTimezone,
+        referenceDate,
+        weekStartDay
+      );
+      set.add(key);
     }
     return set;
-  }, [schedule.selections, profileId, userTimezone, schedule.type, referenceDate]);
+  }, [
+    schedule.selections,
+    profileId,
+    userTimezone,
+    schedule.type,
+    referenceDate,
+    weekStartDay,
+  ]);
 
   // Build a map of all users' selections for each cell (for profile icons)
   const allCellSelections = useMemo(() => {
@@ -246,37 +271,13 @@ export function WeeklyGrid({
     >();
 
     for (const sel of schedule.selections) {
-      let cellKey: string;
-
-      if (schedule.type === "one-off") {
-        const converted = convertOneOffSlot(
-          sel.dayKey,
-          sel.timeSlot,
-          sel.timezone,
-          userTimezone
-        );
-        cellKey = `${converted.date}|${converted.time}`;
-      } else {
-        if (sel.isException && sel.exceptionDate) {
-          const converted = convertOneOffSlot(
-            sel.exceptionDate,
-            sel.timeSlot,
-            sel.timezone,
-            userTimezone
-          );
-          cellKey = `exc:${converted.date}|${converted.time}`;
-        } else {
-          const dow = parseInt(sel.dayKey);
-          const converted = convertRecurringSlot(
-            dow,
-            sel.timeSlot,
-            sel.timezone,
-            userTimezone,
-            referenceDate
-          );
-          cellKey = `${converted.dayOfWeek}|${converted.time}`;
-        }
-      }
+      const { key: cellKey } = getSelectionViewerCell(
+        schedule.type,
+        sel,
+        userTimezone,
+        referenceDate,
+        weekStartDay
+      );
 
       const existing = map.get(cellKey) || [];
       existing.push({ profileId: sel.profileId, state: sel.state });
@@ -284,27 +285,63 @@ export function WeeklyGrid({
     }
 
     return map;
-  }, [schedule.selections, userTimezone, schedule.type, referenceDate]);
+  }, [
+    schedule.selections,
+    userTimezone,
+    schedule.type,
+    referenceDate,
+    weekStartDay,
+  ]);
 
-  // Disallowed slots set
+  // Schedule-level limits and locks are anchored to the timezone in which the
+  // schedule was created, then projected into the viewer's current timezone.
   const disallowedSet = useMemo(() => {
     const set = new Set<string>();
     if (!schedule.disallowedSlots) return set;
     for (const slot of schedule.disallowedSlots) {
-      set.add(`${slot.dayKey}|${slot.timeSlot}`);
+      const converted = convertCellToTimezone(
+        schedule.type,
+        slot,
+        schedule.creatorTimezone,
+        userTimezone,
+        referenceDate,
+        weekStartDay
+      );
+      set.add(getTimezoneCellKey(schedule.type, converted));
     }
     return set;
-  }, [schedule.disallowedSlots]);
+  }, [
+    schedule.disallowedSlots,
+    schedule.type,
+    schedule.creatorTimezone,
+    userTimezone,
+    referenceDate,
+    weekStartDay,
+  ]);
 
-  // Locked slots set
   const lockedSet = useMemo(() => {
     const set = new Set<string>();
     if (!schedule.lockedSlots) return set;
     for (const slot of schedule.lockedSlots) {
-      set.add(`${slot.dayKey}|${slot.timeSlot}`);
+      const converted = convertCellToTimezone(
+        schedule.type,
+        slot,
+        schedule.creatorTimezone,
+        userTimezone,
+        referenceDate,
+        weekStartDay
+      );
+      set.add(getTimezoneCellKey(schedule.type, converted));
     }
     return set;
-  }, [schedule.lockedSlots]);
+  }, [
+    schedule.lockedSlots,
+    schedule.type,
+    schedule.creatorTimezone,
+    userTimezone,
+    referenceDate,
+    weekStartDay,
+  ]);
 
   // Get the cell key for a given day/time index
   const getCellKey = useCallback(
@@ -363,7 +400,8 @@ export function WeeklyGrid({
     }
   };
 
-  // Convert dayIndex/timeIndex to storage keys
+  // Convert a cell from the viewer's grid timezone to the timezone of the
+  // profile whose availability is being edited.
   const toStorageKeys = useCallback(
     (
       dayIndex: number,
@@ -373,51 +411,149 @@ export function WeeklyGrid({
       timeSlot: string;
       isException?: boolean;
       exceptionDate?: string;
+      timezone: string;
     } => {
-      const timeSlot = TIME_SLOTS[timeIndex];
+      const displayedTime = TIME_SLOTS[timeIndex];
+      const displayedDate = weekDates[dayIndex];
+      const viewerKey = getCellKey(dayIndex, timeIndex);
+      const displayedException =
+        schedule.type === "recurring" &&
+        (weekOffset !== 0 || viewerKey.startsWith("exc:"));
+      const existingSelection =
+        schedule.type === "one-off" ||
+        weekOffset === 0 ||
+        viewerKey.startsWith("exc:")
+          ? myCellSelections.get(viewerKey)
+          : undefined;
 
-      if (schedule.type === "one-off") {
-        const date = weekDates[dayIndex];
-        return { dayKey: date.toISODate()!, timeSlot };
-      } else {
-        const date = weekDates[dayIndex];
-        const dow = (weekStartDay + dayIndex) % 7;
-        const exceptionDate = date.toISODate()!;
-        const exceptionCellKey = `exc:${exceptionDate}|${timeSlot}`;
-
-        // Target the exact dated exception when one is currently displayed.
-        // Calendar-synced entries are exceptions even in the current week.
-        if (weekOffset !== 0 || myCellStates.has(exceptionCellKey)) {
-          return {
-            dayKey: String(dow),
-            timeSlot,
-            isException: true,
-            exceptionDate,
-          };
-        }
-
-        return { dayKey: String(dow), timeSlot };
+      if (existingSelection) {
+        return {
+          dayKey: existingSelection.dayKey,
+          timeSlot: existingSelection.timeSlot,
+          isException: existingSelection.isException,
+          exceptionDate: existingSelection.exceptionDate,
+          timezone: existingSelection.timezone,
+        };
       }
+
+      const displayedCell: TimezoneCell =
+        schedule.type === "one-off"
+          ? {
+              dayKey: displayedDate.toISODate()!,
+              timeSlot: displayedTime,
+            }
+          : {
+              dayKey: String((weekStartDay + dayIndex) % 7),
+              timeSlot: displayedTime,
+              ...(displayedException
+                ? {
+                    isException: true,
+                    exceptionDate: displayedDate.toISODate()!,
+                  }
+                : {}),
+            };
+      return {
+        ...convertCellToTimezone(
+          schedule.type,
+          displayedCell,
+          userTimezone,
+          selectionTimezone,
+          referenceDate,
+          weekStartDay
+        ),
+        timezone: selectionTimezone,
+      };
     },
-    [schedule.type, weekDates, weekStartDay, weekOffset, myCellStates]
+    [
+      schedule.type,
+      weekDates,
+      weekStartDay,
+      weekOffset,
+      getCellKey,
+      myCellSelections,
+      userTimezone,
+      selectionTimezone,
+      referenceDate,
+    ]
+  );
+
+  const getDisplayedScheduleCell = useCallback(
+    (dayIndex: number, timeIndex: number): TimezoneCell => ({
+      dayKey:
+        schedule.type === "one-off"
+          ? weekDates[dayIndex].toISODate()!
+          : String((weekStartDay + dayIndex) % 7),
+      timeSlot: TIME_SLOTS[timeIndex],
+    }),
+    [schedule.type, weekDates, weekStartDay]
+  );
+
+  // Convert a displayed grid cell back to the schedule's immutable timezone
+  // anchor for limit and lock storage.
+  const toScheduleKeys = useCallback(
+    (dayIndex: number, timeIndex: number): TimezoneCell =>
+      convertCellToTimezone(
+        schedule.type,
+        getDisplayedScheduleCell(dayIndex, timeIndex),
+        userTimezone,
+        schedule.creatorTimezone,
+        referenceDate,
+        weekStartDay
+      ),
+    [
+      schedule.type,
+      schedule.creatorTimezone,
+      getDisplayedScheduleCell,
+      userTimezone,
+      referenceDate,
+      weekStartDay,
+    ]
   );
 
   // Check if a cell is disallowed
   const isCellDisallowed = useCallback(
     (dayIndex: number, timeIndex: number): boolean => {
-      const { dayKey, timeSlot } = toStorageKeys(dayIndex, timeIndex);
-      return disallowedSet.has(`${dayKey}|${timeSlot}`);
+      const key = getTimezoneCellKey(
+        schedule.type,
+        getDisplayedScheduleCell(dayIndex, timeIndex)
+      );
+      return disallowedSet.has(key);
     },
-    [toStorageKeys, disallowedSet]
+    [schedule.type, getDisplayedScheduleCell, disallowedSet]
   );
 
   // Check if a cell is locked
   const isCellLocked = useCallback(
     (dayIndex: number, timeIndex: number): boolean => {
-      const { dayKey, timeSlot } = toStorageKeys(dayIndex, timeIndex);
-      return lockedSet.has(`${dayKey}|${timeSlot}`);
+      const key = getTimezoneCellKey(
+        schedule.type,
+        getDisplayedScheduleCell(dayIndex, timeIndex)
+      );
+      return lockedSet.has(key);
     },
-    [toStorageKeys, lockedSet]
+    [schedule.type, getDisplayedScheduleCell, lockedSet]
+  );
+
+  const isCellInDateRange = useCallback(
+    (dayIndex: number, timeIndex: number): boolean => {
+      if (
+        schedule.type !== "one-off" ||
+        !schedule.dateRangeStart ||
+        !schedule.dateRangeEnd
+      ) {
+        return true;
+      }
+      const { dayKey } = toScheduleKeys(dayIndex, timeIndex);
+      return (
+        dayKey >= schedule.dateRangeStart && dayKey <= schedule.dateRangeEnd
+      );
+    },
+    [
+      schedule.type,
+      schedule.dateRangeStart,
+      schedule.dateRangeEnd,
+      toScheduleKeys,
+    ]
   );
 
   // Handle single cell click (toggle)
@@ -425,19 +561,13 @@ export function WeeklyGrid({
     (dayIndex: number, timeIndex: number) => {
       if (!canInteract) return;
 
-      // Prevent interactions outside date range for one-off schedules
-      if (schedule.type === "one-off" && schedule.dateRangeStart && schedule.dateRangeEnd) {
-        const dateStr = weekDates[dayIndex]?.toISODate() || "";
-        if (dateStr < schedule.dateRangeStart || dateStr > schedule.dateRangeEnd) return;
-      }
-
-      const { dayKey, timeSlot } = toStorageKeys(dayIndex, timeIndex);
-      const slotKey = `${dayKey}|${timeSlot}`;
+      if (!isCellInDateRange(dayIndex, timeIndex)) return;
 
       // Creator: Allow/Disallow mode
       if (isCreator && creatorMode === "limit") {
+        const { dayKey, timeSlot } = toScheduleKeys(dayIndex, timeIndex);
         const currentSlots = schedule.disallowedSlots || [];
-        const cellIsDisallowed = disallowedSet.has(slotKey);
+        const cellIsDisallowed = isCellDisallowed(dayIndex, timeIndex);
 
         if (allowMode === "auto") {
           // Toggle
@@ -464,8 +594,9 @@ export function WeeklyGrid({
 
       // Creator: Lock mode
       if (canLock && creatorMode === "lock") {
+        const { dayKey, timeSlot } = toScheduleKeys(dayIndex, timeIndex);
         const currentSlots = schedule.lockedSlots || [];
-        const cellIsLocked = lockedSet.has(slotKey);
+        const cellIsLocked = isCellLocked(dayIndex, timeIndex);
 
         // Toggle lock state
         if (cellIsLocked) {
@@ -493,15 +624,28 @@ export function WeeklyGrid({
         newState = currentState === selectMode ? "blank" : selectMode;
       }
 
-      const { isException, exceptionDate } = toStorageKeys(dayIndex, timeIndex);
-      onCellChange(dayKey, timeSlot, newState, isException, exceptionDate);
+      const {
+        dayKey,
+        timeSlot,
+        isException,
+        exceptionDate,
+        timezone: storageTimezone,
+      } =
+        toStorageKeys(dayIndex, timeIndex);
+      const scheduleCell = toScheduleKeys(dayIndex, timeIndex);
+      onCellChange(
+        dayKey,
+        timeSlot,
+        newState,
+        isException,
+        exceptionDate,
+        storageTimezone,
+        scheduleCell.dayKey,
+        scheduleCell.timeSlot
+      );
     },
     [
       canInteract,
-      schedule.type,
-      schedule.dateRangeStart,
-      schedule.dateRangeEnd,
-      weekDates,
       isCreator,
       canLock,
       creatorMode,
@@ -510,11 +654,13 @@ export function WeeklyGrid({
       getCellState,
       getCellKey,
       calendarSyncedCells,
+      isCellInDateRange,
+      isCellDisallowed,
+      isCellLocked,
       toStorageKeys,
+      toScheduleKeys,
       onCellChange,
       onCreatorSlotChange,
-      disallowedSet,
-      lockedSet,
       schedule.disallowedSlots,
       schedule.lockedSlots,
     ]
@@ -620,14 +766,11 @@ export function WeeklyGrid({
           dragStartRef.current.timeIndex
         );
       } else if (dragActive) {
-        // Drag complete — collect selected cells, filtering out any outside the date range
-        const selectedCells = getSelectedCells().filter((cell) => {
-          if (schedule.type === "one-off" && schedule.dateRangeStart && schedule.dateRangeEnd) {
-            const dateStr = weekDates[cell.dayIndex]?.toISODate() || "";
-            return dateStr >= schedule.dateRangeStart && dateStr <= schedule.dateRangeEnd;
-          }
-          return true;
-        });
+        // Drag complete — collect selected cells, filtering in the schedule's
+        // timezone so boundary days work correctly for remote viewers.
+        const selectedCells = getSelectedCells().filter((cell) =>
+          isCellInDateRange(cell.dayIndex, cell.timeIndex)
+        );
         if (selectedCells.length > 0) {
           if (isCreator && creatorMode === "limit") {
             // Allow/Disallow mode: update disallowedSlots
@@ -635,12 +778,14 @@ export function WeeklyGrid({
             const currentSlots = [...(schedule.disallowedSlots || [])];
 
             for (const cell of selectedCells) {
-              const { dayKey, timeSlot } = toStorageKeys(
+              const { dayKey, timeSlot } = toScheduleKeys(
                 cell.dayIndex,
                 cell.timeIndex
               );
-              const slotKey = `${dayKey}|${timeSlot}`;
-              const isInSet = disallowedSet.has(slotKey);
+              const isInSet = isCellDisallowed(
+                cell.dayIndex,
+                cell.timeIndex
+              );
 
               if (action === "dont-allow" && !isInSet) {
                 currentSlots.push({ dayKey, timeSlot });
@@ -661,12 +806,11 @@ export function WeeklyGrid({
             const currentSlots = [...(schedule.lockedSlots || [])];
 
             for (const cell of allowedCells) {
-              const { dayKey, timeSlot } = toStorageKeys(
+              const { dayKey, timeSlot } = toScheduleKeys(
                 cell.dayIndex,
                 cell.timeIndex
               );
-              const slotKey = `${dayKey}|${timeSlot}`;
-              const isInSet = lockedSet.has(slotKey);
+              const isInSet = isCellLocked(cell.dayIndex, cell.timeIndex);
 
               if (action === "lock" && !isInSet) {
                 currentSlots.push({ dayKey, timeSlot });
@@ -687,9 +831,28 @@ export function WeeklyGrid({
                 );
             const state = dragActionRef.current as CellState;
             const batchSelections = allowedCells.map((cell) => {
-              const { dayKey, timeSlot, isException, exceptionDate } =
+              const {
+                dayKey,
+                timeSlot,
+                isException,
+                exceptionDate,
+                timezone,
+              } =
                 toStorageKeys(cell.dayIndex, cell.timeIndex);
-              return { dayKey, timeSlot, state, isException, exceptionDate };
+              const scheduleCell = toScheduleKeys(
+                cell.dayIndex,
+                cell.timeIndex
+              );
+              return {
+                dayKey,
+                timeSlot,
+                state,
+                isException,
+                exceptionDate,
+                timezone,
+                scheduleDayKey: scheduleCell.dayKey,
+                scheduleTimeSlot: scheduleCell.timeSlot,
+              };
             });
             if (batchSelections.length > 0) {
               onBatchChange(batchSelections);
@@ -739,18 +902,15 @@ export function WeeklyGrid({
     dragActive,
     handleSingleCellToggle,
     toStorageKeys,
+    toScheduleKeys,
     onBatchChange,
     isCreator,
     canLock,
     creatorMode,
     onCreatorSlotChange,
     isCellDisallowed,
-    schedule.type,
-    schedule.dateRangeStart,
-    schedule.dateRangeEnd,
-    weekDates,
-    disallowedSet,
-    lockedSet,
+    isCellLocked,
+    isCellInDateRange,
     schedule.disallowedSlots,
     schedule.lockedSlots,
   ]);
@@ -854,18 +1014,6 @@ export function WeeklyGrid({
   // Date labels for columns
   const columnDates = weekDates.map((d) => d.toFormat("MMM d"));
 
-  // Check if a date is within the schedule's date range (for one-off)
-  const isDateInRange = useCallback(
-    (dateStr: string): boolean => {
-      if (schedule.type !== "one-off") return true;
-      if (!schedule.dateRangeStart || !schedule.dateRangeEnd) return true;
-      return (
-        dateStr >= schedule.dateRangeStart && dateStr <= schedule.dateRangeEnd
-      );
-    },
-    [schedule.type, schedule.dateRangeStart, schedule.dateRangeEnd]
-  );
-
   // Selection box rect for rendering
   const selectionRect = useMemo(() => {
     if (!selectionBox || !dragActive) return null;
@@ -909,8 +1057,9 @@ export function WeeklyGrid({
                 Time
               </th>
               {dayNames.map((day, i) => {
-                const dateStr = weekDates[i]?.toISODate() || "";
-                const inRange = isDateInRange(dateStr);
+                const inRange = TIME_SLOTS.some((_, timeIndex) =>
+                  isCellInDateRange(i, timeIndex)
+                );
                 const isToday = i === currentDayIndex;
 
                 return (
@@ -938,8 +1087,7 @@ export function WeeklyGrid({
                   {timeIndex % 2 === 0 ? formatTimeSlot(slot) : ""}
                 </td>
                 {dayNames.map((_, dayIndex) => {
-                  const dateStr = weekDates[dayIndex]?.toISODate() || "";
-                  const inRange = isDateInRange(dateStr);
+                  const inRange = isCellInDateRange(dayIndex, timeIndex);
                   const myState = getCellState(dayIndex, timeIndex);
                   const cellKey = getCellKey(dayIndex, timeIndex);
                   const otherSelections = allCellSelections.get(cellKey) || [];

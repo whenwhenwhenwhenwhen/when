@@ -17,7 +17,12 @@ import { ParticipantsMenu } from "./ParticipantsMenu";
 import { DiscordLinkButton } from "./DiscordLinkButton";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
-import { detectTimezone, getWeekDates, generateTimeSlots } from "../lib/timezone";
+import {
+  convertCellToTimezone,
+  detectTimezone,
+  getWeekDates,
+  generateTimeSlots,
+} from "../lib/timezone";
 import { DateTime } from "luxon";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
@@ -163,6 +168,11 @@ export function ScheduleView() {
 
   // The effective profile for selections: either the user being edited or the current user
   const effectiveProfileId = editingProfileId ?? profile?._id ?? null;
+  const selectionTimezone = editingProfileId
+    ? schedule?.profiles?.find((participant: { _id: string }) =>
+        participant._id === editingProfileId
+      )?.timezone ?? timezone
+    : currentLink?.savedAvailabilityTimezone ?? timezone;
 
   const handleCellChange = useCallback(
     async (
@@ -170,9 +180,13 @@ export function ScheduleView() {
       timeSlot: string,
       state: "can-do" | "cant-do" | "maybe" | "blank",
       isException?: boolean,
-      exceptionDate?: string
+      exceptionDate?: string,
+      storageTimezone?: string,
+      scheduleDayKey?: string,
+      scheduleTimeSlot?: string
     ) => {
       if (!effectiveProfileId) return;
+      const cellTimezone = storageTimezone ?? selectionTimezone;
 
       if (state === "blank") {
         await removeSelectionMut({
@@ -182,7 +196,9 @@ export function ScheduleView() {
           timeSlot,
           isException,
           exceptionDate,
-          timezone,
+          timezone: cellTimezone,
+          scheduleDayKey,
+          scheduleTimeSlot,
           anonymousId: callerAnonymousId,
         });
       } else {
@@ -191,15 +207,24 @@ export function ScheduleView() {
           profileId: effectiveProfileId,
           dayKey,
           timeSlot,
-          timezone,
+          timezone: cellTimezone,
           state,
           isException,
           exceptionDate,
+          scheduleDayKey,
+          scheduleTimeSlot,
           anonymousId: callerAnonymousId,
         });
       }
     },
-    [id, effectiveProfileId, callerAnonymousId, timezone, setSelectionMut, removeSelectionMut]
+    [
+      id,
+      effectiveProfileId,
+      callerAnonymousId,
+      selectionTimezone,
+      setSelectionMut,
+      removeSelectionMut,
+    ]
   );
 
   const handleBatchChange = useCallback(
@@ -210,6 +235,9 @@ export function ScheduleView() {
         state: "can-do" | "cant-do" | "maybe" | "blank";
         isException?: boolean;
         exceptionDate?: string;
+        timezone?: string;
+        scheduleDayKey?: string;
+        scheduleTimeSlot?: string;
       }[]
     ) => {
       if (!effectiveProfileId) return;
@@ -217,12 +245,18 @@ export function ScheduleView() {
       await batchSetMut({
         scheduleId: id as Id<"schedules">,
         profileId: effectiveProfileId,
-        timezone,
+        timezone: selectionTimezone,
         selections: cells,
         anonymousId: callerAnonymousId,
       });
     },
-    [id, effectiveProfileId, callerAnonymousId, timezone, batchSetMut]
+    [
+      id,
+      effectiveProfileId,
+      callerAnonymousId,
+      selectionTimezone,
+      batchSetMut,
+    ]
   );
 
   const handleCreatorSlotChange = useCallback(
@@ -514,7 +548,15 @@ export function ScheduleView() {
       if (sel.profileId !== (profile._id as string)) continue;
       if (sel.state !== "can-do" && sel.state !== "maybe") continue;
       if (schedule.type === "recurring" && sel.isException) continue;
-      nominatedSet.add(`${sel.dayKey}|${sel.timeSlot}`);
+      const converted = convertCellToTimezone(
+        schedule.type,
+        sel,
+        sel.timezone,
+        schedule.creatorTimezone,
+        referenceDate,
+        profile.weekStartDay
+      );
+      nominatedSet.add(`${converted.dayKey}|${converted.timeSlot}`);
     }
 
     const disallowedSlots: { dayKey: string; timeSlot: string }[] = [];
@@ -546,7 +588,13 @@ export function ScheduleView() {
       anonymousId: callerAnonymousId,
       slots: disallowedSlots,
     });
-  }, [schedule, profile, callerAnonymousId, setDisallowedSlots]);
+  }, [
+    schedule,
+    profile,
+    callerAnonymousId,
+    referenceDate,
+    setDisallowedSlots,
+  ]);
 
   if (!schedule) {
     return (
@@ -565,15 +613,27 @@ export function ScheduleView() {
   const getNavigationBoundaries = () => {
     if (schedule.type === "one-off") {
       const startDate = schedule.dateRangeStart
-        ? DateTime.fromISO(schedule.dateRangeStart)
+        ? DateTime.fromISO(schedule.dateRangeStart, {
+            zone: schedule.creatorTimezone,
+          })
+            .startOf("day")
+            .setZone(timezone)
         : null;
       const endDate = schedule.dateRangeEnd
-        ? DateTime.fromISO(schedule.dateRangeEnd)
+        ? DateTime.fromISO(schedule.dateRangeEnd, {
+            zone: schedule.creatorTimezone,
+          })
+            .endOf("day")
+            .setZone(timezone)
         : null;
       return { minDate: startDate, maxDate: endDate };
     } else {
       const startDate = schedule.recurringStartDate
-        ? DateTime.fromISO(schedule.recurringStartDate)
+        ? DateTime.fromISO(schedule.recurringStartDate, {
+            zone: schedule.creatorTimezone,
+          })
+            .startOf("day")
+            .setZone(timezone)
         : null;
       return { minDate: startDate, maxDate: null };
     }
@@ -1007,6 +1067,7 @@ export function ScheduleView() {
           schedule={schedule}
           profileId={effectiveProfileId}
           userTimezone={timezone}
+          selectionTimezone={selectionTimezone}
           weekStartDay={weekStartDay}
           selectMode={selectMode}
           allowMode={allowMode}
