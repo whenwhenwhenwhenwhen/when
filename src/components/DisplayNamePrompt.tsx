@@ -49,10 +49,11 @@ export function DisplayNamePrompt({ currentName, onSubmit }: Props) {
         <button
           type="button"
           onClick={handleLogin}
-          className={styles.displayLogin}
+          className={styles.buttonPrimary}
         >
-          Login to access saved availabilityies, changes across devices &amp; more
+          Login
         </button>
+        <span>to access saved availabilityies, changes across devices &amp; more</span>
       </form>
     </div>
   );
