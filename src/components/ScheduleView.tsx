@@ -15,6 +15,7 @@ import { ManageSavedAvailabilitiesModal } from "./ManageSavedAvailabilitiesModal
 import { EditScheduleModal } from "./EditScheduleModal";
 import { ParticipantsMenu } from "./ParticipantsMenu";
 import { DiscordLinkButton } from "./DiscordLinkButton";
+import { ScheduleOptionsMenu } from "./ScheduleOptionsMenu";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
 import {
@@ -598,7 +599,7 @@ export function ScheduleView() {
 
   if (!schedule) {
     return (
-      <div className={styles.appShell}>
+      <div className={cx(styles.appShell, styles.scheduleShell)}>
         <Header />
         <div className={styles.emptyState}>
           {schedule === null ? "Schedule not found." : "Loading..."}
@@ -670,76 +671,88 @@ export function ScheduleView() {
   };
 
   return (
-    <div className={styles.appShell}>
+    <div className={cx(styles.appShell, styles.scheduleShell)}>
       <Header />
       <main className={styles.mainWide}>
         {/* Schedule Header */}
         <div className={styles.scheduleHeader}>
           <div className={styles.scheduleHeaderRow}>
             <div>
-              <h1 className={styles.scheduleTitle}>
-                {schedule.title}
-              </h1>
+              <div className={styles.scheduleTitleRow}>
+                <h1 className={styles.scheduleTitle}>
+                  {schedule.title}
+                </h1>
+                <div className={styles.scheduleMeta}>
+                  <span
+                    className={cx(
+                      styles.badge,
+                      schedule.type === "one-off"
+                        ? styles.badgeOneOff
+                        : styles.badgeRecurring,
+                    )}
+                  >
+                    {schedule.type === "one-off" ? "One-off" : "Recurring"}
+                  </span>
+                  <span className={styles.faintText}>
+                    by {schedule.creatorName}
+                  </span>
+                </div>
+              </div>
               {schedule.description && (
                 <p className={styles.subtleText}>
                   {schedule.description}
                 </p>
               )}
-              <div className={styles.scheduleMeta}>
-                <span
-                  className={cx(
-                    styles.badge,
-                    schedule.type === "one-off"
-                      ? styles.badgeOneOff
-                      : styles.badgeRecurring,
-                  )}
-                >
-                  {schedule.type === "one-off" ? "One-off" : "Recurring"}
-                </span>
-                <span className={styles.faintText}>
-                  by {schedule.creatorName}
-                </span>
-              </div>
             </div>
             <div className={styles.creatorActions}>
               <span className={styles.faintText}>
                 My timezone: {timezone}
               </span>
-              <DiscordLinkButton
-                scheduleId={schedule._id}
-                profileId={profile?._id ?? null}
-                anonymousId={isAuthenticated ? undefined : anonymousId || undefined}
-                isCreator={!!isCreator}
-              />
-              {isCreator && (
-                <button
-                  onClick={() => setShowEditModal(true)}
-                  className={styles.buttonSecondarySmall}
-                >
-                  Edit Schedule
-                </button>
-              )}
-              {!isCreator && viewerScheduleState?.canArchive && (
-                <button
-                  type="button"
-                  onClick={handleToggleArchive}
-                  disabled={isArchiving || viewerScheduleState.isExpired}
-                  className={styles.buttonSecondarySmall}
-                  title={
-                    viewerScheduleState.isExpired
-                      ? "This one-off schedule is archived because its date window has ended."
-                      : undefined
-                  }
-                >
-                  {isArchiving
-                    ? "Updating..."
-                    : viewerScheduleState.isExpired
-                      ? "Archived (ended)"
-                      : viewerScheduleState.isManuallyArchived
-                        ? "Unarchive"
-                        : "Archive"}
-                </button>
-              )}
+              <div className={styles.creatorActionRow}>
+                <DiscordLinkButton
+                  scheduleId={schedule._id}
+                  profileId={profile?._id ?? null}
+                  anonymousId={isAuthenticated ? undefined : anonymousId || undefined}
+                  isCreator={!!isCreator}
+                />
+                {isCreator && (
+                  <ScheduleOptionsMenu
+                    acceptParticipation={
+                      schedule.acceptParticipation !== false
+                    }
+                    anyoneCanLock={!!schedule.anyoneCanLock}
+                    onDisallowOutsideNominations={
+                      handleDisallowOutsideNominations
+                    }
+                    onToggleAcceptParticipation={
+                      handleToggleAcceptParticipation
+                    }
+                    onToggleAnyoneCanLock={handleToggleAnyoneCanLock}
+                    onEditSchedule={() => setShowEditModal(true)}
+                  />
+                )}
+                {!isCreator && viewerScheduleState?.canArchive && (
+                  <button
+                    type="button"
+                    onClick={handleToggleArchive}
+                    disabled={isArchiving || viewerScheduleState.isExpired}
+                    className={styles.buttonSecondarySmall}
+                    title={
+                      viewerScheduleState.isExpired
+                        ? "This one-off schedule is archived because its date window has ended."
+                        : undefined
+                    }
+                  >
+                    {isArchiving
+                      ? "Updating..."
+                      : viewerScheduleState.isExpired
+                        ? "Archived (ended)"
+                        : viewerScheduleState.isManuallyArchived
+                          ? "Unarchive"
+                          : "Archive"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -888,15 +901,6 @@ export function ScheduleView() {
               >
                 Lock In Time
               </button>
-              {creatorMode === "nominate" && (
-                <button
-                  onClick={handleDisallowOutsideNominations}
-                  className={styles.modeButtonWarning}
-                  title="Mark all times without 'Can Do' or 'Maybe' nominations as disallowed"
-                >
-                  Disallow Outside Nominations
-                </button>
-              )}
             </div>
           )}
 
@@ -914,68 +918,6 @@ export function ScheduleView() {
             >
               Lock In Time
             </button>
-          )}
-
-          {/* Accept Participation toggle (creator only) */}
-          {isCreator && schedule && (
-            <div className={styles.toggleRow}>
-              <label className={styles.calendarLabel}>
-                Accept Participation:
-              </label>
-              <button
-                onClick={() =>
-                  handleToggleAcceptParticipation(
-                    schedule.acceptParticipation === false
-                  )
-                }
-                className={cx(
-                  styles.toggle,
-                  schedule.acceptParticipation !== false && styles.toggleOn,
-                )}
-                title={
-                  schedule.acceptParticipation !== false
-                    ? "Participation is open. Click to close."
-                    : "Participation is closed. Click to open."
-                }
-              >
-                <span
-                  className={cx(
-                    styles.toggleKnob,
-                    schedule.acceptParticipation !== false && styles.toggleKnobOn,
-                  )}
-                />
-              </button>
-            </div>
-          )}
-
-          {/* Anyone Can Lock toggle (creator only) */}
-          {isCreator && schedule && (
-            <div className={styles.toggleRow}>
-              <label className={styles.calendarLabel}>
-                Anyone Can Lock:
-              </label>
-              <button
-                onClick={() =>
-                  handleToggleAnyoneCanLock(!schedule.anyoneCanLock)
-                }
-                className={cx(
-                  styles.toggle,
-                  schedule.anyoneCanLock && styles.togglePurpleOn,
-                )}
-                title={
-                  schedule.anyoneCanLock
-                    ? "Anyone can lock in times. Click to restrict."
-                    : "Only the creator and promoted users can lock in times. Click to allow anyone."
-                }
-              >
-                <span
-                  className={cx(
-                    styles.toggleKnob,
-                    schedule.anyoneCanLock && styles.toggleKnobOn,
-                  )}
-                />
-              </button>
-            </div>
           )}
 
           {/* Participants menu (creator only) */}

@@ -53,7 +53,7 @@ export function DisplayNamePrompt({ currentName, onSubmit }: Props) {
         >
           Login
         </button>
-        <span>to access saved availabilityies, changes across devices &amp; more</span>
+        <span>to access saved availabilities, changes across devices &amp; more</span>
       </form>
     </div>
   );
