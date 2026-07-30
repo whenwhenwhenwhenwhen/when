@@ -1524,6 +1524,7 @@ input:disabled {
 
 .gridCell {
   position: relative;
+  overflow: hidden;
   min-width: 80px;
   min-height: 24px;
   height: 24px;
@@ -1671,7 +1672,7 @@ input:disabled {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.125rem;
-  padding: 3px 6px;
+  padding: 2px 6px;
   border-radius: var(--radius-sm);
 }
 
@@ -1701,8 +1702,8 @@ input:disabled {
 
 .profileIcon {
   display: flex;
-  width: 1rem;
-  height: 1rem;
+  width: 0.9rem;
+  height: 0.9rem;
   align-items: center;
   justify-content: center;
   border-radius: 10%;
