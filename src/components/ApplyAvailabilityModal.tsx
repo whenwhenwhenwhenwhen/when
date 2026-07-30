@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { X } from "lucide-react";
 import { Id } from "../../convex/_generated/dataModel";
 import styles from "../styles/app.module.css";
 
@@ -53,10 +54,12 @@ export function ApplyAvailabilityModal({
             Apply Saved Availability
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className={styles.closeButton}
+            aria-label="Close"
           >
-            &times;
+            <X className={styles.iconMd} aria-hidden="true" />
           </button>
         </div>
 

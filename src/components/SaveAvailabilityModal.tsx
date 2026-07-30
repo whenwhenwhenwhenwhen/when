@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { X } from "lucide-react";
 import styles from "../styles/app.module.css";
 
 interface Props {
@@ -38,10 +39,12 @@ export function SaveAvailabilityModal({ onSave, onClose }: Props) {
             Save New Availability
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className={styles.closeButton}
+            aria-label="Close"
           >
-            &times;
+            <X className={styles.iconMd} aria-hidden="true" />
           </button>
         </div>
 

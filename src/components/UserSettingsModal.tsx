@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
+import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { useGoogleAuth } from "../lib/googleAuth";
 import { getCommonTimezones } from "../lib/timezone";
@@ -214,10 +215,12 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
         <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>User Settings</h2>
           <button
+            type="button"
             onClick={onClose}
             className={styles.closeButton}
+            aria-label="Close"
           >
-            &times;
+            <X className={styles.iconMd} aria-hidden="true" />
           </button>
         </div>
 

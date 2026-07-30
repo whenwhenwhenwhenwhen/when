@@ -1,4 +1,5 @@
 import { createContext, useState, useCallback, useRef } from "react";
+import { X } from "lucide-react";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
 
@@ -88,10 +89,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           >
             <span className={styles.toastMessage}>{toast.message}</span>
             <button
+              type="button"
               onClick={() => dismissToast(toast.id)}
               className={styles.closeButton}
+              aria-label="Dismiss notification"
             >
-              &times;
+              <X className={styles.iconMd} aria-hidden="true" />
             </button>
           </div>
         ))}

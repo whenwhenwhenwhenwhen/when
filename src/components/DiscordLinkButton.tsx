@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { getConfig } from "../config";
@@ -92,12 +93,13 @@ export function DiscordLinkButton({
               </span>
               {isCreator && (
                 <button
+                  type="button"
                   onClick={() => handleUnlink(l._id)}
                   className={cx(styles.iconButton, styles.iconButtonDanger)}
                   title="Unlink"
                   aria-label="Unlink Discord channel"
                 >
-                  ×
+                  <X className={styles.iconXs} aria-hidden="true" />
                 </button>
               )}
             </span>

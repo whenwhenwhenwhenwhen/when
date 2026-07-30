@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
+import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { cx } from "../lib/classes";
@@ -66,10 +67,12 @@ export function ManageSavedAvailabilitiesModal({
             Manage Saved Availabilities
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className={styles.closeButton}
+            aria-label="Close"
           >
-            &times;
+            <X className={styles.iconMd} aria-hidden="true" />
           </button>
         </div>
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
@@ -82,10 +83,12 @@ export function CreateScheduleModal({ onClose }: Props) {
         <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>Create Schedule</h2>
           <button
+            type="button"
             onClick={onClose}
             className={styles.closeButton}
+            aria-label="Close"
           >
-            &times;
+            <X className={styles.iconMd} aria-hidden="true" />
           </button>
         </div>
 

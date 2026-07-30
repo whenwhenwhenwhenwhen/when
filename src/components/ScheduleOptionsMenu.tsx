@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
 
@@ -57,20 +58,10 @@ export function ScheduleOptionsMenu({
         aria-haspopup="dialog"
       >
         Schedule options
-        <svg
+        <ChevronDown
           className={styles.iconXs}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
           aria-hidden="true"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
+        />
       </button>
 
       {isOpen && (

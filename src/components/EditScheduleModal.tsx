@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { useNavigate } from "react-router";
@@ -120,10 +121,12 @@ export function EditScheduleModal({
             Edit Schedule
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className={styles.closeButton}
+            aria-label="Close"
           >
-            &times;
+            <X className={styles.iconMd} aria-hidden="true" />
           </button>
         </div>
 

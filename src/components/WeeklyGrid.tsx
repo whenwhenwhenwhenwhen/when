@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import { DateTime } from "luxon";
+import { CalendarDays } from "lucide-react";
 import { Id } from "../../convex/_generated/dataModel";
 import {
   generateTimeSlots,
@@ -1130,7 +1131,6 @@ export function WeeklyGrid({
                       (inLimitMode || inCreatorNominateMode) &&
                       styles.limitInteractive,
                     cellLocked && styles.locked,
-                    cellCalendarSynced && styles.calendarSynced,
                     isToday && styles.currentDayCol,
                     isToday && timeIndex === TIME_SLOTS.length - 1
                       ? styles.currentDayColLast
@@ -1170,6 +1170,13 @@ export function WeeklyGrid({
                         <div
                           className={styles.currentTimeLine}
                           style={{ top: `${timeLineOffset}%` }}
+                        />
+                      )}
+
+                      {cellCalendarSynced && (
+                        <CalendarDays
+                          className={styles.calendarSyncedIcon}
+                          aria-hidden="true"
                         />
                       )}
 

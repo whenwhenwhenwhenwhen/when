@@ -1,4 +1,12 @@
-import { useState, useCallback } from "react";
+import {
+  createElement,
+  createContext,
+  type PropsWithChildren,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from "react";
 
 const ANON_ID_KEY = "whengames_anonymous_id";
 const ANON_NAME_KEY = "whengames_anonymous_name";
@@ -7,14 +15,26 @@ function generateUUID(): string {
   return crypto.randomUUID();
 }
 
+interface AnonymousUserContextValue {
+  anonymousId: string;
+  displayName: string;
+  setDisplayName: (name: string) => void;
+  clearAnonymousUser: () => void;
+  hasInteracted: boolean;
+}
+
+const AnonymousUserContext = createContext<AnonymousUserContextValue | null>(
+  null,
+);
+
 /**
- * Hook to manage anonymous user identity via localStorage.
+ * Provides the app's anonymous user identity, persisted via localStorage.
  *
  * - Generates/retrieves a persistent anonymous ID
  * - Stores display name
- * - Provides methods to update the display name
+ * - Shares updates between every mounted consumer
  */
-export function useAnonymousUser() {
+export function AnonymousUserProvider({ children }: PropsWithChildren) {
   const [anonymousId, setAnonymousId] = useState<string>(() => {
     let id = localStorage.getItem(ANON_ID_KEY);
     if (!id) {
@@ -41,11 +61,32 @@ export function useAnonymousUser() {
 
   const hasInteracted = displayName.length > 0;
 
-  return {
-    anonymousId,
-    displayName,
-    setDisplayName,
-    clearAnonymousUser,
-    hasInteracted,
-  };
+  const value = useMemo(
+    () => ({
+      anonymousId,
+      displayName,
+      setDisplayName,
+      clearAnonymousUser,
+      hasInteracted,
+    }),
+    [
+      anonymousId,
+      clearAnonymousUser,
+      displayName,
+      hasInteracted,
+      setDisplayName,
+    ],
+  );
+
+  return createElement(AnonymousUserContext.Provider, { value }, children);
+}
+
+export function useAnonymousUser() {
+  const context = useContext(AnonymousUserContext);
+  if (!context) {
+    throw new Error(
+      "useAnonymousUser must be used within an AnonymousUserProvider",
+    );
+  }
+  return context;
 }

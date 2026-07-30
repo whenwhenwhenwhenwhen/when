@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "react-router";
 import { useGoogleAuth } from "../lib/googleAuth";
+import { GoogleIcon } from "./GoogleIcon";
 import styles from "../styles/app.module.css";
 
 interface Props {
@@ -44,16 +45,17 @@ export function DisplayNamePrompt({ currentName, onSubmit }: Props) {
           disabled={!name.trim()}
           className={styles.buttonWarning}
         >
-          Join
+          Guest
         </button>
         <button
           type="button"
           onClick={handleLogin}
-          className={styles.buttonPrimary}
+          className={`${styles.buttonPrimary} ${styles.displayLogin}`}
         >
+          <GoogleIcon />
           Login
         </button>
-        <span>to access saved availabilities, changes across devices &amp; more</span>
+        <span>Use Google account to access saved availabilities, changes across devices &amp; more</span>
       </form>
     </div>
   );

@@ -1,4 +1,14 @@
 import { useState, useRef, useEffect } from "react";
+import {
+  Ban,
+  ChevronDown,
+  Link2,
+  Lock,
+  LockOpen,
+  SquarePen,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { Id } from "../../convex/_generated/dataModel";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
@@ -95,33 +105,9 @@ export function ParticipantsMenu({
             : "Manage participant availabilities"
         }
       >
-        <svg
-          className={styles.iconSm}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
-          />
-        </svg>
+        <Users className={styles.iconSm} aria-hidden="true" />
         {buttonLabel}
-        <svg
-          className={styles.iconXs}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
+        <ChevronDown className={styles.iconXs} aria-hidden="true" />
       </button>
 
       {isOpen && (
@@ -238,7 +224,10 @@ export function ParticipantsMenu({
                         className={styles.linkedMarker}
                         title="Linked to saved availability"
                       >
-                        *
+                        <Link2
+                          className={cx(styles.iconXs, styles.iconInline)}
+                          aria-hidden="true"
+                        />
                       </span>
                     )}
                     {isLockEditor && (
@@ -246,9 +235,10 @@ export function ParticipantsMenu({
                         className={styles.lockMarker}
                         title="Can lock in times"
                       >
-                        <svg className={cx(styles.iconXs, styles.iconInline)} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
+                        <Lock
+                          className={cx(styles.iconXs, styles.iconInline)}
+                          aria-hidden="true"
+                        />
                       </span>
                     )}
                   </span>
@@ -274,29 +264,23 @@ export function ParticipantsMenu({
                           ? `Revoke ${participant.displayName}'s lock-in permission`
                           : `Allow ${participant.displayName} to lock in times`
                       }
+                      aria-label={
+                        isLockEditor
+                          ? `Revoke ${participant.displayName}'s lock-in permission`
+                          : `Allow ${participant.displayName} to lock in times`
+                      }
                     >
-                      <svg
-                        className={styles.iconSm}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        {isLockEditor ? (
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-                          />
-                        ) : (
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                          />
-                        )}
-                      </svg>
+                      {isLockEditor ? (
+                        <LockOpen
+                          className={styles.iconSm}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Lock
+                          className={styles.iconSm}
+                          aria-hidden="true"
+                        />
+                      )}
                     </button>
 
                     {/* Edit */}
@@ -327,20 +311,18 @@ export function ParticipantsMenu({
                             ? "Stop editing"
                             : `Edit ${participant.displayName}'s availability`
                       }
+                      aria-label={
+                        isLinked
+                          ? "Cannot edit: user has linked their availability to a saved availability"
+                          : isCurrentlyEditing
+                            ? "Stop editing"
+                            : `Edit ${participant.displayName}'s availability`
+                      }
                     >
-                      <svg
+                      <SquarePen
                         className={styles.iconSm}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                        />
-                      </svg>
+                        aria-hidden="true"
+                      />
                     </button>
 
                     {/* Delete */}
@@ -354,20 +336,9 @@ export function ParticipantsMenu({
                       }
                       className={cx(styles.iconButton, styles.iconButtonOrange)}
                       title={`Remove ${participant.displayName}'s availability`}
+                      aria-label={`Remove ${participant.displayName}'s availability`}
                     >
-                      <svg
-                        className={styles.iconSm}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
+                      <Trash2 className={styles.iconSm} aria-hidden="true" />
                     </button>
 
                     {/* Block */}
@@ -381,20 +352,9 @@ export function ParticipantsMenu({
                       }
                       className={cx(styles.iconButton, styles.iconButtonDanger)}
                       title={`Block ${participant.displayName}`}
+                      aria-label={`Block ${participant.displayName}`}
                     >
-                      <svg
-                        className={styles.iconSm}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
-                        />
-                      </svg>
+                      <Ban className={styles.iconSm} aria-hidden="true" />
                     </button>
                   </div>
                 </div>

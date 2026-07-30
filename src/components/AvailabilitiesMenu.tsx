@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { ChevronDown } from "lucide-react";
 import { Id } from "../../convex/_generated/dataModel";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
@@ -122,19 +123,10 @@ export function AvailabilitiesMenu({
       >
         {buttonLabel}
         {!isNonCurrentWeek && (
-          <svg
+          <ChevronDown
             className={styles.iconXs}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 9l-7 7-7-7"
-            />
-          </svg>
+            aria-hidden="true"
+          />
         )}
       </button>
 

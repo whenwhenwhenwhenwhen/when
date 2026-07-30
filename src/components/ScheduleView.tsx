@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router";
 import { useQuery, useMutation } from "convex/react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useGoogleAuth } from "../lib/googleAuth";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -976,8 +977,9 @@ export function ScheduleView() {
               disabled={!canGoBack()}
               className={styles.navButton}
               title="Previous week"
+              aria-label="Previous week"
             >
-              &larr;
+              <ArrowLeft className={styles.iconSm} aria-hidden="true" />
             </button>
             <span className={styles.weekRange}>
               {(() => {
@@ -990,8 +992,9 @@ export function ScheduleView() {
               disabled={!canGoForward()}
               className={styles.navButton}
               title="Next week"
+              aria-label="Next week"
             >
-              &rarr;
+              <ArrowRight className={styles.iconSm} aria-hidden="true" />
             </button>
             {weekOffset !== 0 && (
               <button

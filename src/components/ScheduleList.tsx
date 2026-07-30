@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { DateTime } from "luxon";
+import { Plus } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Doc } from "../../convex/_generated/dataModel";
 import { CreateScheduleModal } from "./CreateScheduleModal";
@@ -122,7 +123,8 @@ export function ScheduleList() {
             onClick={() => setShowCreate(true)}
             className={styles.buttonPrimary}
           >
-            + New Schedule
+            <Plus className={styles.iconSm} aria-hidden="true" />
+            New Schedule
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { X } from "lucide-react";
 import styles from "../styles/app.module.css";
 
 interface Props {
@@ -35,10 +36,12 @@ export function ClearConfirmModal({ title, message, onConfirm, onClose }: Props)
         <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             className={styles.closeButton}
+            aria-label="Close"
           >
-            &times;
+            <X className={styles.iconMd} aria-hidden="true" />
           </button>
         </div>
 

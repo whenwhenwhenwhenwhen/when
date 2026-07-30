@@ -6,6 +6,7 @@ import { useGoogleAuth } from "../lib/googleAuth";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AnimatedTitle } from "./AnimatedTitle";
+import { GoogleIcon } from "./GoogleIcon";
 import favicon from "../assets/favicon.svg";
 import styles from "../styles/app.module.css";
 
@@ -135,6 +136,7 @@ export function Header() {
                   onClick={handleLogin}
                   className={styles.buttonPrimarySmall}
                 >
+                  <GoogleIcon />
                   {hasInteracted ? "Link Login" : "Login"}
                 </button>
                 {profile && (

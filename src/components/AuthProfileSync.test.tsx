@@ -2,6 +2,7 @@
 
 import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AnonymousUserProvider } from "../hooks/useAnonymousUser";
 import { AuthProfileSync } from "./AuthProfileSync";
 
 const mocks = vi.hoisted(() => ({
@@ -43,7 +44,11 @@ describe("AuthProfileSync", () => {
   it("includes the stored anonymous identity in the first authenticated sync", async () => {
     localStorage.setItem("whengames_anonymous_id", "mobile-anonymous-id");
 
-    render(<AuthProfileSync />);
+    render(
+      <AnonymousUserProvider>
+        <AuthProfileSync />
+      </AnonymousUserProvider>,
+    );
 
     await waitFor(() => {
       expect(mocks.ensureProfile).toHaveBeenCalledTimes(1);
