@@ -4,6 +4,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { Settings } from "luxon";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Id } from "../../convex/_generated/dataModel";
+import styles from "../styles/app.module.css";
 import { WeeklyGrid } from "./WeeklyGrid";
 
 describe("WeeklyGrid participant timezone editing", () => {
@@ -309,5 +310,51 @@ describe("WeeklyGrid participant timezone editing", () => {
         "19:00"
       );
     });
+  });
+
+  it("keeps the grid viewport scrollable while anonymous interactions are disabled", () => {
+    const onCellChange = vi.fn(() => Promise.resolve());
+    const onBatchChange = vi.fn(() => Promise.resolve());
+    const onCreatorSlotChange = vi.fn(() => Promise.resolve());
+    const { container } = render(
+      <WeeklyGrid
+        schedule={{
+          _id: "schedule" as Id<"schedules">,
+          title: "Read-only schedule",
+          type: "recurring",
+          creatorTimezone: "Australia/Melbourne",
+          creatorProfileId: "creator" as Id<"userProfiles">,
+          selections: [],
+          profiles: [],
+        }}
+        profileId={null}
+        userTimezone="Australia/Melbourne"
+        selectionTimezone="Australia/Melbourne"
+        weekStartDay={0}
+        selectMode="auto"
+        allowMode="auto"
+        weekOffset={0}
+        canInteract={false}
+        isCreator={false}
+        canLock={false}
+        creatorMode={null}
+        onCellChange={onCellChange}
+        onBatchChange={onBatchChange}
+        onCreatorSlotChange={onCreatorSlotChange}
+      />,
+    );
+
+    const table = container.querySelector("table");
+    const scrollContainer = table?.parentElement;
+    expect(table?.classList.contains(styles.noInteract)).toBe(true);
+    expect(scrollContainer?.classList.contains(styles.noInteract)).toBe(false);
+
+    const firstCell = container.querySelector("tbody td:nth-child(2)");
+    fireEvent.mouseDown(firstCell!, { button: 0 });
+    fireEvent.mouseUp(document, { button: 0 });
+
+    expect(onCellChange).not.toHaveBeenCalled();
+    expect(onBatchChange).not.toHaveBeenCalled();
+    expect(onCreatorSlotChange).not.toHaveBeenCalled();
   });
 });

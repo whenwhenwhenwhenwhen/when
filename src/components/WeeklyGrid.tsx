@@ -1049,9 +1049,14 @@ export function WeeklyGrid({
       {/* Grid Container */}
       <div
         ref={gridRef}
-        className={cx(styles.gridContainer, !canInteract && styles.noInteract)}
+        className={styles.gridContainer}
       >
-        <table className={styles.scheduleTable}>
+        <table
+          className={cx(
+            styles.scheduleTable,
+            !canInteract && styles.noInteract,
+          )}
+        >
           <thead className={styles.tableHead}>
             <tr>
               <th className={styles.timeHeader}>
