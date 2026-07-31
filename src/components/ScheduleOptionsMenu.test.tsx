@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ScheduleOptionsMenu } from "./ScheduleOptionsMenu";
 
@@ -19,11 +19,20 @@ describe("ScheduleOptionsMenu", () => {
         onToggleAcceptParticipation={onToggleAcceptParticipation}
         onToggleAnyoneCanLock={onToggleAnyoneCanLock}
         onEditSchedule={onEditSchedule}
+        discordLinkAction={<button type="button">Link to Discord</button>}
       />,
     );
 
+    expect(
+      screen.queryByRole("button", { name: "Link to Discord" }),
+    ).toBeNull();
+
     fireEvent.click(
       screen.getByRole("button", { name: "Schedule options" }),
+    );
+    within(screen.getByRole("dialog", { name: "Schedule options" })).getByRole(
+      "button",
+      { name: "Link to Discord" },
     );
 
     fireEvent.click(

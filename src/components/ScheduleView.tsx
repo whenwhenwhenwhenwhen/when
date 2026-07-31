@@ -715,6 +715,7 @@ export function ScheduleView() {
                   profileId={profile?._id ?? null}
                   anonymousId={isAuthenticated ? undefined : anonymousId || undefined}
                   isCreator={!!isCreator}
+                  showLinkButton={false}
                 />
                 {isCreator && (
                   <ScheduleOptionsMenu
@@ -730,6 +731,21 @@ export function ScheduleView() {
                     }
                     onToggleAnyoneCanLock={handleToggleAnyoneCanLock}
                     onEditSchedule={() => setShowEditModal(true)}
+                    discordLinkAction={
+                      <DiscordLinkButton
+                        scheduleId={schedule._id}
+                        profileId={profile?._id ?? null}
+                        anonymousId={
+                          isAuthenticated ? undefined : anonymousId || undefined
+                        }
+                        isCreator
+                        showLinks={false}
+                        linkButtonClassName={cx(
+                          styles.menuItem,
+                          styles.menuItemWithIcon,
+                        )}
+                      />
+                    }
                   />
                 )}
                 {!isCreator && viewerScheduleState?.canArchive && (

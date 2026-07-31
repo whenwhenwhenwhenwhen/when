@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
@@ -10,6 +10,7 @@ interface Props {
   onToggleAcceptParticipation: (accept: boolean) => void | Promise<void>;
   onToggleAnyoneCanLock: (enabled: boolean) => void | Promise<void>;
   onEditSchedule: () => void;
+  discordLinkAction: ReactNode;
 }
 
 export function ScheduleOptionsMenu({
@@ -19,6 +20,7 @@ export function ScheduleOptionsMenu({
   onToggleAcceptParticipation,
   onToggleAnyoneCanLock,
   onEditSchedule,
+  discordLinkAction,
 }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -157,6 +159,8 @@ export function ScheduleOptionsMenu({
           </div>
 
           <div className={styles.menuDivider} />
+
+          {discordLinkAction}
 
           <button
             type="button"

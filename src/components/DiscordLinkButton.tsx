@@ -12,6 +12,9 @@ interface Props {
   profileId: Id<"userProfiles"> | null;
   anonymousId?: string;
   isCreator: boolean;
+  showLinks?: boolean;
+  showLinkButton?: boolean;
+  linkButtonClassName?: string;
 }
 
 const DISCORD_INSTALL_NONCE_KEY = "whengames_discord_install_session";
@@ -25,6 +28,9 @@ export function DiscordLinkButton({
   profileId,
   anonymousId,
   isCreator,
+  showLinks = true,
+  showLinkButton = true,
+  linkButtonClassName = styles.buttonSecondarySmall,
 }: Props) {
   const links = useQuery(api.discord.linksForScheduleSummary, { scheduleId });
   const createInstallSession = useMutation(api.discord.createInstallSession);
@@ -75,15 +81,16 @@ export function DiscordLinkButton({
   );
 
   const hasLinks = links && links.length > 0;
+  const shouldShowLinks = showLinks && hasLinks;
+  const shouldShowLinkButton = showLinkButton && isCreator;
 
-  if (!isCreator && !hasLinks) {
-    // Nothing to show to non-creators when nothing is linked
+  if (!shouldShowLinks && !shouldShowLinkButton) {
     return null;
   }
 
   return (
     <div className={styles.inlineClusterTight}>
-      {hasLinks && (
+      {shouldShowLinks && (
         <div className={styles.discordLinks}>
           <DiscordIcon className={cx(styles.iconMd, styles.discordIcon)} />
           {links!.map((l) => (
@@ -106,11 +113,12 @@ export function DiscordLinkButton({
           ))}
         </div>
       )}
-      {isCreator && (
+      {shouldShowLinkButton && (
         <button
+          type="button"
           onClick={handleLink}
           disabled={busy || !profileId}
-          className={styles.buttonSecondarySmall}
+          className={linkButtonClassName}
           title={
             hasLinks ? "Link another Discord channel" : "Link a Discord channel"
           }

@@ -974,6 +974,12 @@ input:disabled {
   background: var(--color-surface-muted);
 }
 
+.menuItemWithIcon {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .menuItemDisabled {
   color: var(--color-text-faint);
   cursor: not-allowed;
