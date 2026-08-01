@@ -222,6 +222,11 @@ The frontend requests permission integer `84992`, which combines all four
 permissions above. Server and channel permission overrides still apply after
 installation.
 
+If an installer clears any requested permission, the OAuth callback aborts the
+link and reports the missing permissions. When a channel is selected, When?
+also requires the initial summary post to succeed before saving the link, so a
+channel override cannot leave behind a link that never delivered a message.
+
 ## Troubleshooting
 
 ### “Discord client ID is not configured”
@@ -256,6 +261,14 @@ Check the deployment name, scheme, path, and trailing slash.
 - Confirm the secret belongs to the same application as `DISCORD_APP_ID`.
 - Confirm **Requires OAuth2 Code Grant** is enabled.
 - If the client secret was reset in Discord, update the Convex value.
+
+### Installation reports that Discord is not configured
+
+The active Convex deployment must have `DISCORD_APP_ID`,
+`DISCORD_CLIENT_SECRET`, and `DISCORD_BOT_TOKEN`. When? checks this before
+opening Discord and checks again in the callback. The bot may already have
+joined the server if configuration changed while the authorization page was
+open; no schedule-to-channel link is saved in that case.
 
 ### No channels appear in the channel picker
 

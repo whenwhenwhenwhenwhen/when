@@ -5,6 +5,10 @@ import { api } from "../../convex/_generated/api";
 import { Header } from "./Header";
 import { useGoogleAuth } from "../lib/googleAuth";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
+import {
+  getDiscordInstallErrorMessage,
+  getDiscordLinkFailureMessage,
+} from "../lib/discordErrors";
 import styles from "../styles/app.module.css";
 
 const DISCORD_INSTALL_NONCE_KEY = "whengames_discord_install_session";
@@ -24,6 +28,9 @@ export function DiscordChannelPickerPage() {
   const params = new URLSearchParams(window.location.search);
   const sessionToken = params.get("session");
   const error = params.get("error");
+  const missingPermissions = (params.get("missing") ?? "")
+    .split(",")
+    .filter(Boolean);
 
   // CSRF: only proceed if the token in the URL matches what we stashed
   // when starting the OAuth flow.
@@ -56,6 +63,7 @@ export function DiscordChannelPickerPage() {
 
   const [picking, setPicking] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   const channels = session?.channels ?? [];
   const sortedChannels = useMemo(
@@ -66,19 +74,33 @@ export function DiscordChannelPickerPage() {
   const handlePick = async (channelId: string, channelName: string) => {
     if (!sessionToken) return;
     setPicking(channelId);
+    setLinkError(null);
     try {
-      await linkScheduleToChannel({
+      const result = await linkScheduleToChannel({
         sessionToken,
         channelId,
         channelName,
         ...ownerArgs,
       });
+      if (!result.ok) {
+        setLinkError(
+          getDiscordLinkFailureMessage(
+            result.reason,
+            channelName,
+          ),
+        );
+        return;
+      }
       sessionStorage.removeItem(DISCORD_INSTALL_NONCE_KEY);
       setDone(true);
       // Bounce back to schedule view
       if (session?.scheduleId) {
         setTimeout(() => navigate(`/schedule/${session.scheduleId}`), 600);
       }
+    } catch {
+      setLinkError(
+        "When? could not finish linking this Discord channel. No link was saved; please try again.",
+      );
     } finally {
       setPicking(null);
     }
@@ -88,7 +110,7 @@ export function DiscordChannelPickerPage() {
     return (
       <Wrap>
         <div className={styles.errorText}>
-          Discord install failed: {error}
+          {getDiscordInstallErrorMessage(error, missingPermissions)}
         </div>
         <BackButton scheduleId={session?.scheduleId} />
       </Wrap>
@@ -136,6 +158,11 @@ export function DiscordChannelPickerPage() {
         The bot will send a summary message here. Updates are sent if a locked-in
         time changes or a participant becomes unavailable for a locked slot.
       </p>
+      {linkError && (
+        <p className={styles.errorText} role="alert">
+          {linkError}
+        </p>
+      )}
       {sortedChannels.length === 0 ? (
         <p className={styles.subtleText}>
           No text channels visible to the bot. Make sure the bot has the View

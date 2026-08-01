@@ -20,6 +20,8 @@ import {
   editChannelMessage,
   fetchGuildChannels,
   fetchGuildInfo,
+  DiscordApiError,
+  getMissingDiscordInstallConfiguration,
   SummaryInput,
 } from "./discordHelpers";
 
@@ -161,6 +163,17 @@ export const linksForScheduleSummary = query({
       linkedAt: l.linkedAt,
     }));
   },
+});
+
+/**
+ * Lets the frontend fail before sending the user through Discord when the
+ * server-side credentials required to finish the callback are absent.
+ */
+export const getInstallReadiness = action({
+  args: {},
+  handler: async (): Promise<{ ready: boolean }> => ({
+    ready: getMissingDiscordInstallConfiguration().length === 0,
+  }),
 });
 
 /**
@@ -395,16 +408,19 @@ export const createLink = internalMutation({
     guildId: v.string(),
     guildName: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<Id<"scheduleDiscordLinks">> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ linkId: Id<"scheduleDiscordLinks">; created: boolean }> => {
     // Dedup: if a link for this (scheduleId, channelId) exists, reuse it
     const existing = await ctx.db
       .query("scheduleDiscordLinks")
       .withIndex("by_schedule", (q) => q.eq("scheduleId", args.scheduleId))
       .collect();
     const dup = existing.find((l) => l.channelId === args.channelId);
-    if (dup) return dup._id;
+    if (dup) return { linkId: dup._id, created: false };
 
-    return await ctx.db.insert("scheduleDiscordLinks", {
+    const linkId = await ctx.db.insert("scheduleDiscordLinks", {
       scheduleId: args.scheduleId,
       channelId: args.channelId,
       channelName: args.channelName,
@@ -413,6 +429,15 @@ export const createLink = internalMutation({
       linkedByProfileId: args.profileId,
       linkedAt: Date.now(),
     });
+    return { linkId, created: true };
+  },
+});
+
+export const deleteLink = internalMutation({
+  args: { linkId: v.id("scheduleDiscordLinks") },
+  handler: async (ctx, args) => {
+    const link = await ctx.db.get(args.linkId);
+    if (link) await ctx.db.delete(args.linkId);
   },
 });
 
@@ -497,14 +522,14 @@ async function sendSummaryFor(
   ctx: ActionCtx,
   linkId: Id<"scheduleDiscordLinks">,
   options: { onlyIfChanged: boolean }
-): Promise<void> {
+): Promise<boolean> {
   const link = await ctx.runQuery(internal.discord.getLink, { linkId });
-  if (!link) return;
+  if (!link) return false;
 
   const input = await ctx.runQuery(internal.discord.buildSummaryInput, {
     scheduleId: link.scheduleId,
   });
-  if (!input) return;
+  if (!input) return false;
 
   const snapshot = buildLockedSlotSnapshot(input);
   if (options.onlyIfChanged && snapshot === link.lastSnapshotJson) {
@@ -512,7 +537,7 @@ async function sendSummaryFor(
       linkId,
       snapshotJson: snapshot,
     });
-    return;
+    return true;
   }
 
   const payload = buildSummaryMessage(input);
@@ -529,7 +554,7 @@ async function sendSummaryFor(
   }
   if (!messageId) {
     const res = await postChannelMessage(link.channelId, payload);
-    messageId = res?.id;
+    messageId = res.id;
   }
 
   await ctx.runMutation(internal.discord.updateLinkSnapshot, {
@@ -537,6 +562,31 @@ async function sendSummaryFor(
     snapshotJson: snapshot,
     messageId,
   });
+  return true;
+}
+
+type LinkScheduleResult =
+  | { ok: true; linkId: Id<"scheduleDiscordLinks"> }
+  | {
+      ok: false;
+      reason:
+        | "missing_permissions"
+        | "channel_unavailable"
+        | "discord_unavailable"
+        | "configuration_error";
+    };
+
+function discordLinkFailureReason(
+  error: DiscordApiError,
+): Exclude<LinkScheduleResult, { ok: true }>["reason"] {
+  if (error.status === 401) return "configuration_error";
+  if (error.status === 403 || error.code === 50001 || error.code === 50013) {
+    return "missing_permissions";
+  }
+  if (error.status === 404 || error.code === 10003) {
+    return "channel_unavailable";
+  }
+  return "discord_unavailable";
 }
 
 /**
@@ -554,7 +604,7 @@ export const linkScheduleToChannel = action({
   handler: async (
     ctx,
     args
-  ): Promise<{ linkId: Id<"scheduleDiscordLinks"> }> => {
+  ): Promise<LinkScheduleResult> => {
     const session = await ctx.runQuery(internal.discord.getOwnedInstallSession, {
       sessionToken: args.sessionToken,
       anonymousId: args.anonymousId,
@@ -565,7 +615,10 @@ export const linkScheduleToChannel = action({
     const ch = channels.find((c) => c.id === args.channelId);
     if (!ch) throw new Error("Selected channel is not available for this install");
 
-    const linkId: Id<"scheduleDiscordLinks"> = await ctx.runMutation(
+    const createdLink: {
+      linkId: Id<"scheduleDiscordLinks">;
+      created: boolean;
+    } = await ctx.runMutation(
       internal.discord.createLink,
       {
         scheduleId: session.scheduleId,
@@ -577,14 +630,29 @@ export const linkScheduleToChannel = action({
       }
     );
 
-    await sendSummaryFor(ctx, linkId, { onlyIfChanged: false });
+    try {
+      const sent = await sendSummaryFor(ctx, createdLink.linkId, {
+        onlyIfChanged: false,
+      });
+      if (!sent) throw new Error("Discord link disappeared before initial send");
+    } catch (error) {
+      if (createdLink.created) {
+        await ctx.runMutation(internal.discord.deleteLink, {
+          linkId: createdLink.linkId,
+        });
+      }
+      if (error instanceof DiscordApiError) {
+        return { ok: false, reason: discordLinkFailureReason(error) };
+      }
+      throw error;
+    }
 
     // Cleanup the install session
     await ctx.runMutation(internal.discord.deleteInstallSession, {
       sessionToken: args.sessionToken,
     });
 
-    return { linkId };
+    return { ok: true, linkId: createdLink.linkId };
   },
 });
 

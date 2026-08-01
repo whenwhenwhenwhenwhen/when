@@ -53,6 +53,49 @@ export async function verifyDiscordSignature(
 
 const DISCORD_API = "https://discord.com/api/v10";
 
+const DISCORD_INSTALL_ENVIRONMENT_VARIABLES = [
+  "DISCORD_APP_ID",
+  "DISCORD_CLIENT_SECRET",
+  "DISCORD_BOT_TOKEN",
+] as const;
+
+export function getMissingDiscordInstallConfiguration(): string[] {
+  return DISCORD_INSTALL_ENVIRONMENT_VARIABLES.filter(
+    (name) => !process.env[name],
+  );
+}
+
+export class DiscordApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: number,
+  ) {
+    super(message);
+    this.name = "DiscordApiError";
+  }
+}
+
+async function discordApiError(
+  operation: string,
+  response: Response,
+): Promise<DiscordApiError> {
+  const body = await response.text();
+  let code: number | undefined;
+  let message = body || `Discord returned HTTP ${response.status}`;
+
+  try {
+    const parsed = JSON.parse(body) as { code?: unknown; message?: unknown };
+    if (typeof parsed.code === "number") code = parsed.code;
+    if (typeof parsed.message === "string") message = parsed.message;
+  } catch {
+    // Keep the raw response text for diagnostics when it is not JSON.
+  }
+
+  console.error(`${operation} failed`, response.status, code, message);
+  return new DiscordApiError(message, response.status, code);
+}
+
 function authHeader(): Record<string, string> {
   return {
     Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
@@ -63,15 +106,14 @@ function authHeader(): Record<string, string> {
 export async function postChannelMessage(
   channelId: string,
   payload: Record<string, unknown>
-): Promise<{ id: string } | null> {
+): Promise<{ id: string }> {
   const res = await fetch(`${DISCORD_API}/channels/${channelId}/messages`, {
     method: "POST",
     headers: authHeader(),
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    console.error("postChannelMessage failed", res.status, await res.text());
-    return null;
+    throw await discordApiError("postChannelMessage", res);
   }
   return (await res.json()) as { id: string };
 }
@@ -90,8 +132,11 @@ export async function editChannelMessage(
     }
   );
   if (!res.ok) {
-    console.error("editChannelMessage failed", res.status, await res.text());
-    return false;
+    const error = await discordApiError("editChannelMessage", res);
+    // The stored message may have been manually deleted. In that one case,
+    // fall back to posting a replacement; permission failures must surface.
+    if (error.status === 404 && error.code === 10008) return false;
+    throw error;
   }
   return true;
 }
@@ -103,8 +148,7 @@ export async function fetchGuildChannels(
     headers: authHeader(),
   });
   if (!res.ok) {
-    console.error("fetchGuildChannels failed", res.status, await res.text());
-    return [];
+    throw await discordApiError("fetchGuildChannels", res);
   }
   const data = (await res.json()) as Array<{
     id: string;

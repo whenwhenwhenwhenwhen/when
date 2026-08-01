@@ -14,6 +14,7 @@ import type * as calendarSync from "../calendarSync.js";
 import type * as crons from "../crons.js";
 import type * as discord from "../discord.js";
 import type * as discordHelpers from "../discordHelpers.js";
+import type * as discordPermissions from "../discordPermissions.js";
 import type * as discordSetup from "../discordSetup.js";
 import type * as dstNotifications from "../dstNotifications.js";
 import type * as http from "../http.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   discord: typeof discord;
   discordHelpers: typeof discordHelpers;
+  discordPermissions: typeof discordPermissions;
   discordSetup: typeof discordSetup;
   dstNotifications: typeof dstNotifications;
   http: typeof http;

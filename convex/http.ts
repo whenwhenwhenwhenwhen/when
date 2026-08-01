@@ -2,9 +2,12 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
+  DiscordApiError,
   exchangeDiscordOAuthCode,
+  getMissingDiscordInstallConfiguration,
   verifyDiscordSignature,
 } from "./discordHelpers";
+import { getMissingDiscordPermissions } from "./discordPermissions";
 
 const http = httpRouter();
 
@@ -638,6 +641,7 @@ http.route({
     const state = url.searchParams.get("state") || "";
     const code = url.searchParams.get("code");
     const guildId = url.searchParams.get("guild_id");
+    const permissions = url.searchParams.get("permissions");
     const error = url.searchParams.get("error");
     const siteUrl = process.env.SITE_URL!;
 
@@ -656,6 +660,33 @@ http.route({
     const redirectUri = new URL("/discord/install-callback", req.url).toString();
     const params = new URLSearchParams();
     params.set("session", state);
+
+    const missingPermissions = getMissingDiscordPermissions(permissions);
+    if (missingPermissions.length > 0) {
+      params.set("error", "missing_permissions");
+      params.set("missing", missingPermissions.join(","));
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${siteUrl}/discord/link-channel?${params.toString()}`,
+        },
+      });
+    }
+
+    const missingConfiguration = getMissingDiscordInstallConfiguration();
+    if (missingConfiguration.length > 0) {
+      console.error(
+        "Discord install callback is missing configuration",
+        missingConfiguration,
+      );
+      params.set("error", "discord_not_configured");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${siteUrl}/discord/link-channel?${params.toString()}`,
+        },
+      });
+    }
 
     try {
       const exchanged = await exchangeDiscordOAuthCode(code, redirectUri);
@@ -676,7 +707,16 @@ http.route({
       });
     } catch (err) {
       console.error("Discord install callback failed", err);
-      params.set("error", "install_callback_failed");
+      params.set(
+        "error",
+        err instanceof DiscordApiError
+          ? err.status === 401
+            ? "discord_credentials_invalid"
+            : err.status === 403 || err.code === 50001 || err.code === 50013
+              ? "discord_server_access_failed"
+              : "install_callback_failed"
+          : "install_callback_failed",
+      );
       return new Response(null, {
         status: 302,
         headers: {

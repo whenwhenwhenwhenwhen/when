@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
+import { DISCORD_REQUIRED_PERMISSION_BITS } from "../../convex/discordPermissions";
 import { getConfig } from "../config";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
@@ -19,10 +20,6 @@ interface Props {
 
 const DISCORD_INSTALL_NONCE_KEY = "whengames_discord_install_session";
 
-// View Channel + Send Messages + Embed Links + Read Message History
-//   0x400  +    0x800     +   0x4000     +  0x10000        = 0x14C00 = 84992
-const DISCORD_BOT_PERMISSIONS = "84992";
-
 export function DiscordLinkButton({
   scheduleId,
   profileId,
@@ -34,6 +31,7 @@ export function DiscordLinkButton({
 }: Props) {
   const links = useQuery(api.discord.linksForScheduleSummary, { scheduleId });
   const createInstallSession = useMutation(api.discord.createInstallSession);
+  const getInstallReadiness = useAction(api.discord.getInstallReadiness);
   const unlink = useMutation(api.discord.unlink);
   const [busy, setBusy] = useState(false);
 
@@ -41,25 +39,33 @@ export function DiscordLinkButton({
     if (!profileId) return;
     setBusy(true);
     try {
+      const cfg = getConfig();
+      const clientId = cfg.DISCORD_CLIENT_ID;
+      if (!clientId) {
+        alert(
+          "Discord linking is not configured on this When? deployment. Ask the administrator to configure the Discord client ID.",
+        );
+        return;
+      }
+
+      const readiness = await getInstallReadiness();
+      if (!readiness.ready) {
+        alert(
+          "Discord linking is not configured on this When? deployment. Ask the administrator to configure the Discord application credentials.",
+        );
+        return;
+      }
+
       const sessionToken = await createInstallSession({
         scheduleId,
         anonymousId,
       });
       sessionStorage.setItem(DISCORD_INSTALL_NONCE_KEY, sessionToken);
 
-      const cfg = getConfig();
-      const clientId = cfg.DISCORD_CLIENT_ID;
-      if (!clientId) {
-        alert(
-          "Discord client ID is not configured. Set DISCORD_CLIENT_ID on the deployment."
-        );
-        return;
-      }
-
       const url = new URL("https://discord.com/api/oauth2/authorize");
       url.searchParams.set("client_id", clientId);
       url.searchParams.set("scope", "bot applications.commands");
-      url.searchParams.set("permissions", DISCORD_BOT_PERMISSIONS);
+      url.searchParams.set("permissions", DISCORD_REQUIRED_PERMISSION_BITS);
       url.searchParams.set("state", sessionToken);
       url.searchParams.set(
         "redirect_uri",
@@ -67,10 +73,21 @@ export function DiscordLinkButton({
       );
       url.searchParams.set("response_type", "code");
       window.location.href = url.toString();
+    } catch (error) {
+      console.error("Could not start Discord linking", error);
+      alert(
+        "When? could not start Discord linking. Check your connection and try again.",
+      );
     } finally {
       setBusy(false);
     }
-  }, [scheduleId, profileId, anonymousId, createInstallSession]);
+  }, [
+    scheduleId,
+    profileId,
+    anonymousId,
+    createInstallSession,
+    getInstallReadiness,
+  ]);
 
   const handleUnlink = useCallback(
     async (linkId: Id<"scheduleDiscordLinks">) => {
