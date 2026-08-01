@@ -710,13 +710,6 @@ export function ScheduleView() {
                 My timezone: {timezone}
               </span>
               <div className={styles.creatorActionRow}>
-                <DiscordLinkButton
-                  scheduleId={schedule._id}
-                  profileId={profile?._id ?? null}
-                  anonymousId={isAuthenticated ? undefined : anonymousId || undefined}
-                  isCreator={!!isCreator}
-                  showLinkButton={false}
-                />
                 {isCreator && (
                   <ScheduleOptionsMenu
                     acceptParticipation={
@@ -739,7 +732,6 @@ export function ScheduleView() {
                           isAuthenticated ? undefined : anonymousId || undefined
                         }
                         isCreator
-                        showLinks={false}
                         linkButtonClassName={cx(
                           styles.menuItem,
                           styles.menuItemWithIcon,

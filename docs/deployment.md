@@ -189,7 +189,8 @@ Set the Interactions Endpoint URL:
 https://your-deployment.convex.site/discord/interactions
 ```
 
-Register the slash command:
+The production GitHub Actions workflow registers the global slash command after
+deploying Convex. For other deployments, register it manually:
 
 ```bash
 npx convex run discordSetup:registerCommands
@@ -206,3 +207,15 @@ Optional debounce override:
 ```bash
 npx convex env set DISCORD_DEBOUNCE_MS 300000
 ```
+
+Optional default age before a relevant update posts a new summary message
+instead of editing the latest one:
+
+```bash
+npx convex env set DISCORD_NEW_MESSAGE_AFTER_MS 21600000
+```
+
+Set this to `0` to always edit the current latest message, or `-1` to never
+start a replacement and stay anchored to the original linked message. Schedule
+creators can override the default per linked channel in the Discord schedule
+submenu. A matching pinned When? schedule message overrides the age policy.

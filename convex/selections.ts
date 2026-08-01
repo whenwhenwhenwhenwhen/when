@@ -85,7 +85,11 @@ async function queueDiscordUpdatesForLinks(
       internal.discord.sendDebouncedUpdate,
       { linkId: link._id }
     );
-    await ctx.db.patch(link._id, { pendingScheduledId: newId });
+    await ctx.db.patch(link._id, {
+      pendingScheduledId: newId,
+      pendingUpdateAt: Date.now() + debounceMs,
+      lastUpdateError: undefined,
+    });
   }
 }
 

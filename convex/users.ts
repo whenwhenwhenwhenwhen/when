@@ -152,6 +152,24 @@ async function moveProfileData(
       }
     }
   }
+
+  const [fromDiscordLink, toDiscordLink] = await Promise.all([
+    ctx.db
+      .query("discordUserLinks")
+      .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
+      .unique(),
+    ctx.db
+      .query("discordUserLinks")
+      .withIndex("by_profileId", (q) => q.eq("profileId", toProfileId))
+      .unique(),
+  ]);
+  if (fromDiscordLink) {
+    if (toDiscordLink) {
+      await ctx.db.delete(fromDiscordLink._id);
+    } else {
+      await ctx.db.patch(fromDiscordLink._id, { profileId: toProfileId });
+    }
+  }
 }
 
 // Get or create an anonymous user profile

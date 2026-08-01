@@ -30,9 +30,17 @@ describe("ScheduleOptionsMenu", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Schedule options" }),
     );
-    within(screen.getByRole("dialog", { name: "Schedule options" })).getByRole(
-      "button",
-      { name: "Link to Discord" },
+    expect(
+      within(screen.getByRole("dialog", { name: "Schedule options" })).queryByRole(
+        "button",
+        { name: "Link to Discord" },
+      ),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discord" }));
+    screen.getByRole("button", { name: "Link to Discord" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to Schedule options" }),
     );
 
     fireEvent.click(

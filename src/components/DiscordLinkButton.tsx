@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
@@ -19,6 +19,32 @@ interface Props {
 }
 
 const DISCORD_INSTALL_NONCE_KEY = "whengames_discord_install_session";
+const HOUR_MS = 60 * 60 * 1000;
+const NEW_MESSAGE_AGE_OPTIONS = [
+  { value: -1, label: "Never" },
+  { value: 0, label: "Always update the latest message" },
+  { value: HOUR_MS, label: "1 hour" },
+  { value: 6 * HOUR_MS, label: "6 hours" },
+  { value: 12 * HOUR_MS, label: "12 hours" },
+  { value: 24 * HOUR_MS, label: "24 hours" },
+  { value: 3 * 24 * HOUR_MS, label: "3 days" },
+] as const;
+
+function formatStatusTime(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs === -1) return "never";
+  if (durationMs === 0) return "always update latest";
+  const hours = durationMs / HOUR_MS;
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = hours / 24;
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
 
 export function DiscordLinkButton({
   scheduleId,
@@ -32,8 +58,30 @@ export function DiscordLinkButton({
   const links = useQuery(api.discord.linksForScheduleSummary, { scheduleId });
   const createInstallSession = useMutation(api.discord.createInstallSession);
   const getInstallReadiness = useAction(api.discord.getInstallReadiness);
+  const getDeliveryDefaults = useAction(api.discord.getDeliveryDefaults);
   const unlink = useMutation(api.discord.unlink);
+  const setNewMessageAfter = useMutation(api.discord.setNewMessageAfter);
   const [busy, setBusy] = useState(false);
+  const [defaultNewMessageAfterMs, setDefaultNewMessageAfterMs] = useState<
+    number | null
+  >(null);
+  const [savingPolicyFor, setSavingPolicyFor] = useState<
+    Id<"scheduleDiscordLinks"> | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getDeliveryDefaults()
+      .then((defaults) => {
+        if (!cancelled) setDefaultNewMessageAfterMs(defaults.newMessageAfterMs);
+      })
+      .catch(() => {
+        // The link and diagnostics remain usable if defaults cannot be loaded.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getDeliveryDefaults]);
 
   const handleLink = useCallback(async () => {
     if (!profileId) return;
@@ -64,7 +112,7 @@ export function DiscordLinkButton({
 
       const url = new URL("https://discord.com/api/oauth2/authorize");
       url.searchParams.set("client_id", clientId);
-      url.searchParams.set("scope", "bot applications.commands");
+      url.searchParams.set("scope", "identify bot applications.commands");
       url.searchParams.set("permissions", DISCORD_REQUIRED_PERMISSION_BITS);
       url.searchParams.set("state", sessionToken);
       url.searchParams.set(
@@ -97,6 +145,29 @@ export function DiscordLinkButton({
     [profileId, anonymousId, unlink]
   );
 
+  const handlePolicyChange = useCallback(
+    async (
+      linkId: Id<"scheduleDiscordLinks">,
+      value: string,
+    ) => {
+      if (!profileId) return;
+      setSavingPolicyFor(linkId);
+      try {
+        await setNewMessageAfter({
+          linkId,
+          newMessageAfterMs: value === "default" ? null : Number(value),
+          anonymousId,
+        });
+      } catch (error) {
+        console.error("Could not update Discord message policy", error);
+        alert("When? could not update this Discord channel setting.");
+      } finally {
+        setSavingPolicyFor(null);
+      }
+    },
+    [anonymousId, profileId, setNewMessageAfter],
+  );
+
   const hasLinks = links && links.length > 0;
   const shouldShowLinks = showLinks && hasLinks;
   const shouldShowLinkButton = showLinkButton && isCreator;
@@ -106,27 +177,108 @@ export function DiscordLinkButton({
   }
 
   return (
-    <div className={styles.inlineClusterTight}>
+    <div
+      className={
+        showLinks ? styles.discordMenuPanel : styles.inlineClusterTight
+      }
+    >
+      {showLinks && links === undefined && (
+        <p className={styles.discordLinkEmpty}>Loading linked channels…</p>
+      )}
+      {showLinks && links?.length === 0 && (
+        <p className={styles.discordLinkEmpty}>No Discord channels linked.</p>
+      )}
       {shouldShowLinks && (
-        <div className={styles.discordLinks}>
-          <DiscordIcon className={cx(styles.iconMd, styles.discordIcon)} />
-          {links!.map((l) => (
-            <span key={l._id} className={styles.inlineClusterTight}>
-              <span title={l.guildName ?? undefined}>
-                #{l.channelName ?? l.channelId.slice(0, 6)}
-              </span>
-              {isCreator && (
-                <button
-                  type="button"
-                  onClick={() => handleUnlink(l._id)}
-                  className={cx(styles.iconButton, styles.iconButtonDanger)}
-                  title="Unlink"
-                  aria-label="Unlink Discord channel"
-                >
-                  <X className={styles.iconXs} aria-hidden="true" />
-                </button>
+        <div className={styles.discordLinkList} aria-live="polite">
+          {links!.map((link) => (
+            <div key={link._id} className={styles.discordLinkCard}>
+              <div className={styles.discordLinkHeader}>
+                <div className={styles.discordLinkName}>
+                  <DiscordIcon
+                    className={cx(styles.iconMd, styles.discordIcon)}
+                  />
+                  <div>
+                    <div>#{link.channelName ?? link.channelId.slice(0, 6)}</div>
+                    {link.guildName && (
+                      <div className={styles.discordGuildName}>
+                        {link.guildName}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {isCreator && (
+                  <button
+                    type="button"
+                    onClick={() => handleUnlink(link._id)}
+                    className={cx(styles.iconButton, styles.iconButtonDanger)}
+                    title="Unlink"
+                    aria-label={`Unlink #${link.channelName ?? link.channelId.slice(0, 6)}`}
+                  >
+                    <X className={styles.iconXs} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+
+              {link.lastUpdateError ? (
+                <p className={cx(styles.discordLinkStatus, styles.errorText)}>
+                  Update failed
+                  {link.lastUpdateAttemptAt
+                    ? ` ${formatStatusTime(link.lastUpdateAttemptAt)}`
+                    : ""}
+                  : {link.lastUpdateError}
+                </p>
+              ) : link.pendingUpdateAt ? (
+                <p className={styles.discordLinkStatus}>
+                  Update queued for {formatStatusTime(link.pendingUpdateAt)}
+                </p>
+              ) : link.lastNotifiedAt ? (
+                <p className={styles.discordLinkStatus}>
+                  Last sent {formatStatusTime(link.lastNotifiedAt)}
+                </p>
+              ) : (
+                <p className={styles.discordLinkStatus}>
+                  Waiting for the first Discord message
+                </p>
               )}
-            </span>
+
+              {link.lastMessageId && (
+                <a
+                  href={`https://discord.com/channels/${link.guildId}/${link.channelId}/${link.lastMessageId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={styles.discordMessageLink}
+                >
+                  View message in Discord
+                </a>
+              )}
+
+              {isCreator && (
+                <label className={styles.discordPolicyLabel}>
+                  <span>Start a new message after</span>
+                  <select
+                    value={link.newMessageAfterMs ?? "default"}
+                    onChange={(event) =>
+                      void handlePolicyChange(link._id, event.target.value)
+                    }
+                    disabled={savingPolicyFor === link._id}
+                    className={styles.selectControl}
+                    aria-label={`New-message age for #${link.channelName ?? link.channelId.slice(0, 6)}`}
+                  >
+                    <option value="default">
+                      Server default
+                      {defaultNewMessageAfterMs === null
+                        ? ""
+                        : ` (${formatDuration(defaultNewMessageAfterMs)})`}
+                    </option>
+                    {NEW_MESSAGE_AGE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -141,7 +293,11 @@ export function DiscordLinkButton({
           }
         >
           <DiscordIcon className={cx(styles.iconSm, styles.discordIcon)} />
-          {busy ? "Opening Discord..." : hasLinks ? "Link another" : "Link to Discord"}
+          {busy
+            ? "Opening Discord..."
+            : hasLinks
+              ? "Link another channel"
+              : "Link to Discord"}
         </button>
       )}
     </div>

@@ -69,6 +69,7 @@ jobs:
           DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
           DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
           DISCORD_DEBOUNCE_MS: ${{ secrets.DISCORD_DEBOUNCE_MS }}
+          DISCORD_NEW_MESSAGE_AFTER_MS: ${{ secrets.DISCORD_NEW_MESSAGE_AFTER_MS }}
         run: |
           pnpm exec convex env set AUTH_GOOGLE_ID "$AUTH_GOOGLE_ID"
           pnpm exec convex env set AUTH_GOOGLE_SECRET "$AUTH_GOOGLE_SECRET"
@@ -88,6 +89,9 @@ jobs:
           fi
           if [ -n "$DISCORD_DEBOUNCE_MS" ]; then
             pnpm exec convex env set DISCORD_DEBOUNCE_MS "$DISCORD_DEBOUNCE_MS"
+          fi
+          if [ -n "$DISCORD_NEW_MESSAGE_AFTER_MS" ]; then
+            pnpm exec convex env set DISCORD_NEW_MESSAGE_AFTER_MS "$DISCORD_NEW_MESSAGE_AFTER_MS"
           fi
 
       - name: Deploy Convex

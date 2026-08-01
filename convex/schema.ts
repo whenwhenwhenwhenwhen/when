@@ -263,13 +263,23 @@ export default defineSchema({
     guildName: v.optional(v.string()),
     linkedByProfileId: v.id("userProfiles"),
     linkedAt: v.number(),
+    // First maintained summary for the link. The Never policy stays anchored
+    // here unless a matching pinned schedule message takes precedence.
+    originalMessageId: v.optional(v.string()),
     // Discord message ID of the most recently sent summary (for edit/jump links)
     lastMessageId: v.optional(v.string()),
     // JSON-serialised locked-slot snapshot used to detect meaningful changes
     lastSnapshotJson: v.optional(v.string()),
     // Currently scheduled debounced send, if any (so we can cancel + reschedule)
     pendingScheduledId: v.optional(v.id("_scheduled_functions")),
+    pendingUpdateAt: v.optional(v.number()),
     lastNotifiedAt: v.optional(v.number()),
+    lastUpdateAttemptAt: v.optional(v.number()),
+    lastUpdateError: v.optional(v.string()),
+    // Per-channel override. Undefined inherits DISCORD_NEW_MESSAGE_AFTER_MS;
+    // -1 always edits the original message; zero edits the latest target;
+    // positive values permit age-based rollover to a new latest target.
+    newMessageAfterMs: v.optional(v.number()),
   })
     .index("by_schedule", ["scheduleId"])
     .index("by_channel", ["channelId"]),
@@ -283,6 +293,18 @@ export default defineSchema({
   })
     .index("by_profileId", ["profileId"])
     .index("by_discordUserId", ["discordUserId"]),
+
+  // One-time bearer links issued privately in Discord when /when is invoked by
+  // a user who has not connected a When? profile yet.
+  discordUserLinkSessions: defineTable({
+    sessionToken: v.string(),
+    discordUserId: v.string(),
+    discordUsername: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_sessionToken", ["sessionToken"])
+    .index("by_discordUserId", ["discordUserId"])
+    .index("by_createdAt", ["createdAt"]),
 
   // Short-lived OAuth/install state for the schedule -> channel link flow
   discordInstallSessions: defineTable({

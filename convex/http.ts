@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import {
   DiscordApiError,
   exchangeDiscordOAuthCode,
+  fetchDiscordCurrentUser,
   getMissingDiscordInstallConfiguration,
   verifyDiscordSignature,
 } from "./discordHelpers";
@@ -482,6 +483,9 @@ http.route({
       };
       member?: { user?: { id: string; username?: string } };
       user?: { id: string; username?: string };
+      channel_id?: string;
+      application_id?: string;
+      token?: string;
     };
     let interaction: DiscordInteraction;
     try {
@@ -500,13 +504,60 @@ http.route({
 
     const discordUserId =
       interaction.member?.user?.id ?? interaction.user?.id ?? "";
+    const discordUsername =
+      interaction.member?.user?.username ?? interaction.user?.username;
 
     // APPLICATION_COMMAND — /when
     if (interaction.type === 2 && interaction.data?.name === "when") {
-      const schedules = await ctx.runQuery(
+      const scheduleResult = await ctx.runQuery(
         internal.discord.listSchedulesForDiscordUser,
         { discordUserId }
       );
+
+      if (!scheduleResult.accountLinked) {
+        const sessionToken = await ctx.runMutation(
+          internal.discord.createDiscordUserLinkSession,
+          { discordUserId, discordUsername },
+        );
+        const siteUrl = process.env.SITE_URL ?? "";
+        const linkUrl = siteUrl
+          ? new URL(
+              `/discord/link-account?token=${encodeURIComponent(sessionToken)}`,
+              siteUrl,
+            ).toString()
+          : null;
+        return new Response(
+          JSON.stringify({
+            type: 4,
+            data: {
+              flags: 64,
+              content:
+                "Link your Discord account to your When? profile to choose schedules you have participated in.",
+              components: linkUrl
+                ? [
+                    {
+                      type: 1,
+                      components: [
+                        {
+                          type: 2,
+                          style: 5,
+                          label: "Link When? account",
+                          url: linkUrl,
+                        },
+                      ],
+                    },
+                  ]
+                : undefined,
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      const schedules = scheduleResult.schedules;
 
       if (schedules.length === 0) {
         return new Response(
@@ -515,7 +566,7 @@ http.route({
             data: {
               flags: 64,
               content:
-                "You don't have any schedules yet. Create one at the When? app, or link your Discord account in user settings to see your own schedules here.",
+                "Your Discord account is linked, but this When? profile has not participated in any schedules yet. Participate in a schedule, then run /when again.",
             },
           }),
           {
@@ -576,35 +627,47 @@ http.route({
         | (string & { _brand?: never });
       if (!scheduleId) {
         return new Response(
-          JSON.stringify({ type: 4, data: { flags: 64, content: "No schedule selected." } }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      const summary = await ctx.runAction(
-        internal.discord.buildInteractionSummary,
-        {
-          scheduleId: scheduleId as unknown as never,
-          discordUserId,
-        }
-      );
-
-      if (!summary) {
-        return new Response(
           JSON.stringify({
-            type: 4,
-            data: {
-              flags: 64,
-              content: "Sorry, that schedule could not be found.",
-            },
+            type: 7,
+            data: { content: "No schedule selected.", components: [] },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
 
-      // Public message (no flags=64) — visible to the whole channel
+      if (
+        !interaction.channel_id ||
+        !interaction.application_id ||
+        !interaction.token
+      ) {
+        return new Response(
+          JSON.stringify({
+            type: 7,
+            data: {
+              content: "When? could not determine which channel to share to.",
+              components: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      await ctx.scheduler.runAfter(
+        250,
+        internal.discord.shareInteractionSummary,
+        {
+          scheduleId: scheduleId as unknown as never,
+          discordUserId,
+          channelId: interaction.channel_id,
+          applicationId: interaction.application_id,
+          interactionToken: interaction.token,
+        },
+      );
+
+      // Acknowledge immediately, then the scheduled action posts the public
+      // message and replaces the private picker with success/error text.
       return new Response(
-        JSON.stringify({ type: 4, data: summary }),
+        JSON.stringify({ type: 6 }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -689,8 +752,8 @@ http.route({
     }
 
     try {
-      const exchanged = await exchangeDiscordOAuthCode(code, redirectUri);
-      if (!exchanged) {
+      const accessToken = await exchangeDiscordOAuthCode(code, redirectUri);
+      if (!accessToken) {
         params.set("error", "oauth_exchange_failed");
         return new Response(null, {
           status: 302,
@@ -699,6 +762,13 @@ http.route({
           },
         });
       }
+
+      const discordUser = await fetchDiscordCurrentUser(accessToken);
+      await ctx.runMutation(internal.discord.linkDiscordUserForInstallSession, {
+        sessionToken: state,
+        discordUserId: discordUser.id,
+        discordUsername: discordUser.username,
+      });
 
       // Pull channel list using the bot token and persist on the session
       await ctx.runAction(internal.discord.completeInstallSession, {

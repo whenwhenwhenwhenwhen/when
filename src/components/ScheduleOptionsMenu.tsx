@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
 
@@ -23,7 +29,15 @@ export function ScheduleOptionsMenu({
   discordLinkAction,
 }: Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const [activePanel, setActivePanel] = useState<"schedule" | "discord">(
+    "schedule",
+  );
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const closeMenu = useCallback(() => {
+    setIsOpen(false);
+    setActivePanel("schedule");
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -33,12 +47,12 @@ export function ScheduleOptionsMenu({
         menuRef.current &&
         !menuRef.current.contains(event.target as Node)
       ) {
-        setIsOpen(false);
+        closeMenu();
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setIsOpen(false);
+        closeMenu();
       }
     };
 
@@ -48,13 +62,19 @@ export function ScheduleOptionsMenu({
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen]);
+  }, [closeMenu, isOpen]);
 
   return (
     <div className={styles.menuWrapper} ref={menuRef}>
       <button
         type="button"
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => {
+          if (isOpen) {
+            closeMenu();
+          } else {
+            setIsOpen(true);
+          }
+        }}
         className={styles.buttonSecondarySmall}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
@@ -76,102 +96,129 @@ export function ScheduleOptionsMenu({
           role="dialog"
           aria-label="Schedule options"
         >
-          <div className={styles.menuHeader}>
-            <span className={styles.menuHeaderText}>Schedule options</span>
-          </div>
+          {activePanel === "schedule" ? (
+            <>
+              <div className={styles.menuHeader}>
+                <span className={styles.menuHeaderText}>Schedule options</span>
+              </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setIsOpen(false);
-              void onDisallowOutsideNominations();
-            }}
-            className={cx(styles.menuItem, styles.warningText)}
-            title="Mark all times without 'Can Do' or 'Maybe' nominations as disallowed"
-          >
-            Disallow outside nominations
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  void onDisallowOutsideNominations();
+                }}
+                className={cx(styles.menuItem, styles.warningText)}
+                title="Mark all times without 'Can Do' or 'Maybe' nominations as disallowed"
+              >
+                Disallow outside nominations
+              </button>
 
-          <div className={styles.menuDivider} />
+              <div className={styles.menuDivider} />
 
-          <div className={styles.scheduleOptionRow}>
-            <span className={styles.calendarLabel}>
-              Accept participation
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                void onToggleAcceptParticipation(!acceptParticipation)
-              }
-              className={cx(
-                styles.toggle,
-                acceptParticipation && styles.toggleOn,
-              )}
-              aria-label={
-                acceptParticipation
-                  ? "Close participation"
-                  : "Accept participation"
-              }
-              aria-pressed={acceptParticipation}
-              title={
-                acceptParticipation
-                  ? "Participation is open. Click to close."
-                  : "Participation is closed. Click to open."
-              }
-            >
-              <span
-                className={cx(
-                  styles.toggleKnob,
-                  acceptParticipation && styles.toggleKnobOn,
-                )}
-              />
-            </button>
-          </div>
+              <div className={styles.scheduleOptionRow}>
+                <span className={styles.calendarLabel}>
+                  Accept participation
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void onToggleAcceptParticipation(!acceptParticipation)
+                  }
+                  className={cx(
+                    styles.toggle,
+                    acceptParticipation && styles.toggleOn,
+                  )}
+                  aria-label={
+                    acceptParticipation
+                      ? "Close participation"
+                      : "Accept participation"
+                  }
+                  aria-pressed={acceptParticipation}
+                  title={
+                    acceptParticipation
+                      ? "Participation is open. Click to close."
+                      : "Participation is closed. Click to open."
+                  }
+                >
+                  <span
+                    className={cx(
+                      styles.toggleKnob,
+                      acceptParticipation && styles.toggleKnobOn,
+                    )}
+                  />
+                </button>
+              </div>
 
-          <div className={styles.scheduleOptionRow}>
-            <span className={styles.calendarLabel}>Anyone can lock</span>
-            <button
-              type="button"
-              onClick={() => void onToggleAnyoneCanLock(!anyoneCanLock)}
-              className={cx(
-                styles.toggle,
-                anyoneCanLock && styles.togglePurpleOn,
-              )}
-              aria-label={
-                anyoneCanLock
-                  ? "Restrict who can lock in times"
-                  : "Allow anyone to lock in times"
-              }
-              aria-pressed={anyoneCanLock}
-              title={
-                anyoneCanLock
-                  ? "Anyone can lock in times. Click to restrict."
-                  : "Only the creator and promoted users can lock in times. Click to allow anyone."
-              }
-            >
-              <span
-                className={cx(
-                  styles.toggleKnob,
-                  anyoneCanLock && styles.toggleKnobOn,
-                )}
-              />
-            </button>
-          </div>
+              <div className={styles.scheduleOptionRow}>
+                <span className={styles.calendarLabel}>Anyone can lock</span>
+                <button
+                  type="button"
+                  onClick={() => void onToggleAnyoneCanLock(!anyoneCanLock)}
+                  className={cx(
+                    styles.toggle,
+                    anyoneCanLock && styles.togglePurpleOn,
+                  )}
+                  aria-label={
+                    anyoneCanLock
+                      ? "Restrict who can lock in times"
+                      : "Allow anyone to lock in times"
+                  }
+                  aria-pressed={anyoneCanLock}
+                  title={
+                    anyoneCanLock
+                      ? "Anyone can lock in times. Click to restrict."
+                      : "Only the creator and promoted users can lock in times. Click to allow anyone."
+                  }
+                >
+                  <span
+                    className={cx(
+                      styles.toggleKnob,
+                      anyoneCanLock && styles.toggleKnobOn,
+                    )}
+                  />
+                </button>
+              </div>
 
-          <div className={styles.menuDivider} />
+              <div className={styles.menuDivider} />
 
-          {discordLinkAction}
+              <button
+                type="button"
+                onClick={() => setActivePanel("discord")}
+                className={cx(styles.menuItem, styles.menuItemSplit)}
+                aria-haspopup="dialog"
+              >
+                <span>Discord</span>
+                <ChevronRight className={styles.iconXs} aria-hidden="true" />
+              </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setIsOpen(false);
-              onEditSchedule();
-            }}
-            className={styles.menuItem}
-          >
-            Edit schedule…
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  onEditSchedule();
+                }}
+                className={styles.menuItem}
+              >
+                Edit schedule…
+              </button>
+            </>
+          ) : (
+            <>
+              <div className={cx(styles.menuHeader, styles.submenuHeader)}>
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("schedule")}
+                  className={styles.submenuBackButton}
+                  aria-label="Back to Schedule options"
+                >
+                  <ChevronLeft className={styles.iconSm} aria-hidden="true" />
+                </button>
+                <span className={styles.menuHeaderText}>Discord</span>
+              </div>
+              {discordLinkAction}
+            </>
+          )}
         </div>
       )}
     </div>

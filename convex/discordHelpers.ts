@@ -52,6 +52,8 @@ export async function verifyDiscordSignature(
 // ---------------------------------------------------------------------------
 
 const DISCORD_API = "https://discord.com/api/v10";
+export const DEFAULT_DISCORD_NEW_MESSAGE_AFTER_MS = 6 * 60 * 60 * 1000;
+export const DISCORD_NEVER_START_NEW_MESSAGE = -1;
 
 const DISCORD_INSTALL_ENVIRONMENT_VARIABLES = [
   "DISCORD_APP_ID",
@@ -63,6 +65,24 @@ export function getMissingDiscordInstallConfiguration(): string[] {
   return DISCORD_INSTALL_ENVIRONMENT_VARIABLES.filter(
     (name) => !process.env[name],
   );
+}
+
+export function getDiscordNewMessageAfterMs(): number {
+  const raw = process.env.DISCORD_NEW_MESSAGE_AFTER_MS;
+  if (!raw) return DEFAULT_DISCORD_NEW_MESSAGE_AFTER_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= DISCORD_NEVER_START_NEW_MESSAGE
+    ? parsed
+    : DEFAULT_DISCORD_NEW_MESSAGE_AFTER_MS;
+}
+
+export function shouldPostNewDiscordMessage(
+  lastNotifiedAt: number | undefined,
+  newMessageAfterMs: number,
+  now: number,
+): boolean {
+  if (lastNotifiedAt === undefined || newMessageAfterMs <= 0) return false;
+  return now - lastNotifiedAt > newMessageAfterMs;
 }
 
 export class DiscordApiError extends Error {
@@ -118,6 +138,24 @@ export async function postChannelMessage(
   return (await res.json()) as { id: string };
 }
 
+export async function editOriginalInteractionResponse(
+  applicationId: string,
+  interactionToken: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const res = await fetch(
+    `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    throw await discordApiError("editOriginalInteractionResponse", res);
+  }
+}
+
 export async function editChannelMessage(
   channelId: string,
   messageId: string,
@@ -139,6 +177,103 @@ export async function editChannelMessage(
     throw error;
   }
   return true;
+}
+
+export type DiscordChannelMessage = {
+  id: string;
+  pinned?: boolean;
+  author?: { id?: string; bot?: boolean };
+  embeds?: Array<{ url?: string }>;
+};
+
+type DiscordMessagePin = {
+  pinned_at: string;
+  message: DiscordChannelMessage;
+};
+
+export function discordMessageMatchesSchedule(
+  message: DiscordChannelMessage,
+  scheduleId: string,
+): boolean {
+  const appId = process.env.DISCORD_APP_ID;
+  if (appId && message.author?.id !== appId) return false;
+  if (!appId && !message.author?.bot) return false;
+
+  return (message.embeds ?? []).some((embed) => {
+    if (!embed.url) return false;
+    try {
+      return new URL(embed.url).pathname === `/schedule/${scheduleId}`;
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function fetchChannelMessage(
+  channelId: string,
+  messageId: string,
+): Promise<DiscordChannelMessage | null> {
+  const res = await fetch(
+    `${DISCORD_API}/channels/${channelId}/messages/${messageId}`,
+    { headers: authHeader() },
+  );
+  if (!res.ok) {
+    const error = await discordApiError("fetchChannelMessage", res);
+    if (error.status === 404 && error.code === 10008) return null;
+    throw error;
+  }
+  return (await res.json()) as DiscordChannelMessage;
+}
+
+async function fetchChannelPinsPage(
+  channelId: string,
+  before?: string,
+): Promise<{ items: DiscordMessagePin[]; hasMore: boolean }> {
+  const url = new URL(`${DISCORD_API}/channels/${channelId}/messages/pins`);
+  url.searchParams.set("limit", "50");
+  if (before) url.searchParams.set("before", before);
+
+  const res = await fetch(url, { headers: authHeader() });
+  if (!res.ok) throw await discordApiError("fetchChannelPins", res);
+  const data = (await res.json()) as {
+    items?: DiscordMessagePin[];
+    has_more?: boolean;
+  };
+  return { items: data.items ?? [], hasMore: data.has_more === true };
+}
+
+/**
+ * Finds the maintained schedule message that should win the pin override.
+ * Keep the current target stable when it is pinned; otherwise use the most
+ * recently pinned matching message. Pagination is bounded to 500 pins.
+ */
+export async function findPinnedScheduleMessage(
+  channelId: string,
+  scheduleId: string,
+  preferredMessageId?: string,
+): Promise<DiscordChannelMessage | null> {
+  if (preferredMessageId) {
+    const preferred = await fetchChannelMessage(channelId, preferredMessageId);
+    if (
+      preferred?.pinned &&
+      discordMessageMatchesSchedule(preferred, scheduleId)
+    ) {
+      return preferred;
+    }
+  }
+
+  let before: string | undefined;
+  for (let page = 0; page < 10; page += 1) {
+    const result = await fetchChannelPinsPage(channelId, before);
+    const match = result.items.find((pin) =>
+      discordMessageMatchesSchedule(pin.message, scheduleId),
+    );
+    if (match) return match.message;
+    if (!result.hasMore || result.items.length === 0) return null;
+    before = result.items.at(-1)?.pinned_at;
+    if (!before) return null;
+  }
+  return null;
 }
 
 export async function fetchGuildChannels(
@@ -174,7 +309,7 @@ export async function fetchGuildInfo(
 export async function exchangeDiscordOAuthCode(
   code: string,
   redirectUri: string
-): Promise<boolean> {
+): Promise<string | null> {
   const clientId = process.env.DISCORD_APP_ID;
   const clientSecret = process.env.DISCORD_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -197,10 +332,33 @@ export async function exchangeDiscordOAuthCode(
 
   if (!res.ok) {
     console.error("exchangeDiscordOAuthCode failed", res.status, await res.text());
-    return false;
+    return null;
   }
 
-  return true;
+  const data = (await res.json()) as { access_token?: unknown };
+  if (typeof data.access_token !== "string" || data.access_token.length === 0) {
+    console.error("exchangeDiscordOAuthCode returned no access token");
+    return null;
+  }
+
+  return data.access_token;
+}
+
+export async function fetchDiscordCurrentUser(
+  accessToken: string,
+): Promise<{ id: string; username: string }> {
+  const res = await fetch(`${DISCORD_API}/users/@me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await discordApiError("fetchDiscordCurrentUser", res);
+  }
+
+  const data = (await res.json()) as { id?: unknown; username?: unknown };
+  if (typeof data.id !== "string" || typeof data.username !== "string") {
+    throw new Error("Discord user response was incomplete");
+  }
+  return { id: data.id, username: data.username };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +392,8 @@ export type SummaryInput = {
   // Where to point the View Schedule button
   appBaseUrl: string;
 };
+
+export type DiscordSummaryLabel = "will-update" | "one-time";
 
 const DAY_NAMES = [
   "Sunday",
@@ -364,7 +524,8 @@ export function buildLockedSlotSnapshot(input: SummaryInput): string {
  *   or a POST /channels/{id}/messages body.
  */
 export function buildSummaryMessage(
-  input: SummaryInput
+  input: SummaryInput,
+  label: DiscordSummaryLabel,
 ): Record<string, unknown> {
   const { schedule, profileNames } = input;
   const lockedSlots = schedule.lockedSlots ?? [];
@@ -453,7 +614,7 @@ export function buildSummaryMessage(
       { name: "Top nominations", value: nominationsField || "—", inline: false },
     ],
     footer: {
-      text: `Schedule type: ${schedule.type} · Times: ${schedule.creatorTimezone}`,
+      text: `${label === "will-update" ? "Will update." : "One time message."} · Schedule type: ${schedule.type} · Times: ${schedule.creatorTimezone}`,
     },
     timestamp: new Date().toISOString(),
   });

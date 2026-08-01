@@ -9,6 +9,7 @@ import { ScheduleView } from "./components/ScheduleView";
 import { AuthCallbackPage } from "./components/AuthCallbackPage";
 import { CalendarCallbackPage } from "./components/CalendarCallbackPage";
 import { DiscordChannelPickerPage } from "./components/DiscordChannelPickerPage";
+import { DiscordAccountLinkPage } from "./components/DiscordAccountLinkPage";
 import { AuthProfileSync } from "./components/AuthProfileSync";
 import { ToastProvider } from "./components/ToastProvider";
 import { AnonymousUserProvider } from "./hooks/useAnonymousUser";
@@ -31,6 +32,7 @@ loadConfig().then((cfg) => {
                   <Route path="/auth/callback" element={<AuthCallbackPage />} />
                   <Route path="/auth/calendar-callback" element={<CalendarCallbackPage />} />
                   <Route path="/discord/link-channel" element={<DiscordChannelPickerPage />} />
+                  <Route path="/discord/link-account" element={<DiscordAccountLinkPage />} />
                 </Routes>
               </BrowserRouter>
             </ToastProvider>
