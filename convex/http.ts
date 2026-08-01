@@ -474,6 +474,7 @@ http.route({
     }
 
     type DiscordInteraction = {
+      id?: string;
       type: number;
       data?: {
         name?: string;
@@ -638,7 +639,8 @@ http.route({
       if (
         !interaction.channel_id ||
         !interaction.application_id ||
-        !interaction.token
+        !interaction.token ||
+        !interaction.id
       ) {
         return new Response(
           JSON.stringify({
@@ -661,6 +663,7 @@ http.route({
           channelId: interaction.channel_id,
           applicationId: interaction.application_id,
           interactionToken: interaction.token,
+          messageNonce: interaction.id,
         },
       );
 

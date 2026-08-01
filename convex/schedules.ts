@@ -10,7 +10,7 @@ import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { hasScheduleParticipation } from "./scheduleMemberships";
 
-const DEFAULT_DISCORD_DEBOUNCE_MS = 5 * 60 * 1000;
+const DEFAULT_DISCORD_DEBOUNCE_MS = 60 * 1000;
 const SCHEDULE_LIST_LIMIT = 100;
 const PROFILE_SELECTION_SCAN_LIMIT = 5000;
 const PROFILE_AVAILABILITY_LINK_SCAN_LIMIT = 500;
@@ -57,6 +57,8 @@ async function queueDiscordUpdatesForLinks(
     await ctx.db.patch(link._id, {
       pendingScheduledId: newId,
       pendingUpdateAt: Date.now() + debounceMs,
+      pendingUpdateReason: undefined,
+      pendingRetryAttempt: undefined,
       lastUpdateError: undefined,
     });
   }

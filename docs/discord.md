@@ -104,13 +104,13 @@ The variables have the following roles:
 | `DISCORD_BOT_TOKEN` | Authenticates outbound Discord REST API requests |
 | `DISCORD_PUBLIC_KEY` | Verifies signed requests to the interactions endpoint |
 | `DISCORD_CLIENT_SECRET` | Exchanges the installation authorization code |
-| `DISCORD_DEBOUNCE_MS` | Optional delay before updating a linked summary; defaults to 300000 ms |
+| `DISCORD_DEBOUNCE_MS` | Optional delay before updating a linked summary; defaults to 60000 ms (60 seconds) |
 | `DISCORD_NEW_MESSAGE_AFTER_MS` | Optional default age after which a relevant update starts a new message; defaults to 21600000 ms (6 hours), with `0` for latest-only and `-1` for never |
 
 The existing `SITE_URL` variable is also required because the callback
 redirects from Convex back to the frontend's `/discord/link-channel` route.
 
-To change the five-minute update debounce:
+To change the 60-second update debounce:
 
 ```bash
 npx convex env set DISCORD_DEBOUNCE_MS 60000
@@ -243,11 +243,11 @@ After linking, `/when` offers up to 25 of that profile's most recently created
 or participated-in schedules. Participation includes direct selections and
 linked saved availability. It does not fall back to unrelated public schedules.
 
-## Discord update debounce and status
+## Discord update debounce, retries, and status
 
 The debounce prevents a burst of schedule edits from producing a burst of
 Discord API calls. Locking or unlocking a time queues an update for
-`DISCORD_DEBOUNCE_MS` milliseconds later (five minutes by default). A subsequent
+`DISCORD_DEBOUNCE_MS` milliseconds later (60 seconds by default). A subsequent
 relevant change before that deadline cancels the old job and starts the delay
 again. Availability changes only queue an update when they affect a currently
 locked slot.
@@ -291,6 +291,87 @@ Open **Schedule options → Discord** to see each channel's diagnostics:
 Detailed failures also appear in Convex logs under
 `discord:sendDebouncedUpdate` and the Discord REST operation name, such as
 `editChannelMessage` or `postChannelMessage`.
+
+### Exact delivery and timer chain
+
+There is no background Discord polling or periodic cron job. Work begins only
+from a relevant When? mutation, a link action, or a `/when` interaction.
+
+For schedule-driven updates:
+
+1. The schedule or selection mutation commits first.
+2. Locking/unlocking times always counts as relevant. An availability change
+   counts only when it overlaps a currently locked slot.
+3. When? finds the schedule's linked Discord channels in bounded batches.
+4. For each link, it cancels the currently pending debounce/retry action and
+   schedules a new action for `DISCORD_DEBOUNCE_MS` later (60 seconds by
+   default). Every newer relevant change restarts this 60-second window.
+5. When the scheduled action starts, it atomically claims the link by matching
+   its Convex scheduled-function ID. A cancelled or superseded action exits.
+6. The action builds the current summary and checks Discord for the maintained
+   message and matching pins. Pin state is read here; it is not polled between
+   deliveries.
+7. If neither the meaningful schedule snapshot nor the pinned target changed,
+   the action exits without a Discord write.
+8. Otherwise it selects the pinned/original/latest/new message according to the
+   configured message policy and performs the Discord REST operations.
+9. After success, When? stores the snapshot, maintained message ID, and the
+   successful send/edit time. A previous update target is relabelled in a
+   separate idempotent edit.
+
+`DISCORD_NEW_MESSAGE_AFTER_MS` is not a scheduled timer. Its six-hour default is
+an age threshold evaluated only when step 8 runs, using the last successful
+Discord send/edit time. Likewise, a newly pinned message is discovered on the
+next relevant delivery or `/when` share; pinning alone does not wake Convex.
+
+For `/when`:
+
+1. The command immediately returns a private account-link prompt or schedule
+   picker.
+2. Selecting a schedule sends Discord a deferred acknowledgement immediately.
+3. Convex starts the public share action 250 ms later, outside Discord's
+   three-second interaction-response deadline. The 60-second debounce does not
+   apply.
+4. The action checks the linked-channel policy and pins, posts/updates the
+   public message, records its ID when it becomes maintained, and then replaces
+   the private picker with success or failure text.
+
+The initial channel-link message is also immediate and does not use the
+60-second debounce. Unknown-user account-link tokens have a separate 15-minute
+expiry; that expiry does not trigger a Discord delivery.
+
+### Discord rate limits and failure actions
+
+Every Discord REST response is inspected for `X-RateLimit-Bucket`,
+`X-RateLimit-Remaining`, `X-RateLimit-Reset`, and
+`X-RateLimit-Reset-After`. Known exhausted route/global buckets wait until their
+reset before another request is made. A `429` uses the response's `Retry-After`
+header or JSON `retry_after` value, plus a small safety margin.
+
+- A rate-limit wait of at most five seconds is handled inside the current
+  action, for up to two retries after the original request.
+- A longer or repeated rate limit becomes a durable Convex scheduled retry.
+  The scheduled time is Discord's requested delay plus 100–349 ms of safety
+  margin/jitter.
+- Network failures, `502`, and other `5xx` responses receive two short inline
+  retries, then durable retries after approximately 1, 2, 4, 8, and 16 seconds
+  (plus up to 249 ms jitter).
+- Discord write-limit codes `20016`, `20022`, `20028`, and `20029` are treated
+  as rate limits even if Discord does not return HTTP `429`.
+- `400`, `401`, and `403` failures are permanent configuration/payload/
+  permission errors and are not retried. Missing channels, guilds, webhooks,
+  and interactions are also not retried.
+- A missing maintained message (`404` / code `10008`) retains the message-policy
+  behavior: replace it for normal policies, but report failure for **Never**.
+
+Durable delivery retries reuse the same Discord message nonce with
+`enforce_nonce`, so an ambiguous network or server failure cannot create a
+duplicate post. A new relevant schedule change that arrives while a retry is
+waiting cancels/supersedes that retry and starts a fresh 60-second debounce.
+After five durable failures, When? stops and records **Update failed** for the
+linked channel. Relabelling the previous target and completing the private
+`/when` response use their own bounded retry actions so they cannot duplicate
+the primary delivery.
 
 ## Required Discord channel permissions
 
@@ -401,3 +482,5 @@ expired, run `/when` again to create a fresh one.
 - [Receiving and responding to interactions](https://docs.discord.com/developers/interactions/receiving-and-responding)
 - [Application commands](https://docs.discord.com/developers/interactions/application-commands)
 - [Permissions](https://docs.discord.com/developers/topics/permissions)
+- [Rate limits](https://docs.discord.com/developers/topics/rate-limits)
+- [HTTP status and JSON error codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes#http)

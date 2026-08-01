@@ -25,6 +25,7 @@ import {
   DiscordApiError,
   DISCORD_NEVER_START_NEW_MESSAGE,
   getDiscordNewMessageAfterMs,
+  getDiscordRetryDelayMs,
   getMissingDiscordInstallConfiguration,
   shouldPostNewDiscordMessage,
   SummaryInput,
@@ -36,6 +37,7 @@ const USER_LINK_SESSION_TTL_MS = 15 * 60 * 1000;
 const USER_LINK_SESSION_CLEANUP_BATCH_SIZE = 100;
 const MIN_NEW_MESSAGE_AFTER_MS = 60 * 1000;
 const MAX_NEW_MESSAGE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_DISCORD_DELIVERY_RETRIES = 5;
 
 function getAppBaseUrl(): string {
   return process.env.SITE_URL ?? "";
@@ -188,6 +190,8 @@ export const linksForScheduleSummary = query({
       linkedAt: l.linkedAt,
       lastMessageId: l.lastMessageId,
       pendingUpdateAt: l.pendingUpdateAt,
+      pendingUpdateReason: l.pendingUpdateReason,
+      pendingRetryAttempt: l.pendingRetryAttempt,
       lastNotifiedAt: l.lastNotifiedAt,
       lastUpdateAttemptAt: l.lastUpdateAttemptAt,
       lastUpdateError: l.lastUpdateError,
@@ -616,13 +620,51 @@ export const recordLinkUpdateFailure = internalMutation({
   },
   handler: async (ctx, args) => {
     const link = await ctx.db.get(args.linkId);
-    if (!link) return;
+    if (!link || link.pendingScheduledId) return false;
     await ctx.db.patch(args.linkId, {
       pendingScheduledId: undefined,
       pendingUpdateAt: undefined,
+      pendingUpdateReason: undefined,
+      pendingRetryAttempt: undefined,
       lastUpdateAttemptAt: Date.now(),
       lastUpdateError: args.error,
     });
+    return true;
+  },
+});
+
+export const scheduleDiscordDeliveryRetry = internalMutation({
+  args: {
+    linkId: v.id("scheduleDiscordLinks"),
+    delayMs: v.number(),
+    retryAttempt: v.number(),
+    deliveryNonce: v.string(),
+    reason: v.string(),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    const link = await ctx.db.get(args.linkId);
+    // A new schedule change supersedes an in-flight retry and owns the pending
+    // slot. Do not cancel or overwrite that fresher debounced delivery.
+    if (!link || link.pendingScheduledId) return false;
+
+    const delayMs = Math.max(250, Math.ceil(args.delayMs));
+    const scheduledId: Id<"_scheduled_functions"> = await ctx.scheduler.runAfter(
+      delayMs,
+      internal.discord.sendDebouncedUpdate,
+      {
+        linkId: args.linkId,
+        retryAttempt: args.retryAttempt,
+        deliveryNonce: args.deliveryNonce,
+      },
+    );
+    await ctx.db.patch(args.linkId, {
+      pendingScheduledId: scheduledId,
+      pendingUpdateAt: Date.now() + delayMs,
+      pendingUpdateReason: args.reason.slice(0, 200),
+      pendingRetryAttempt: args.retryAttempt,
+      lastUpdateError: undefined,
+    });
+    return true;
   },
 });
 
@@ -645,6 +687,8 @@ export const claimDebouncedUpdate = internalMutation({
     await ctx.db.patch(args.linkId, {
       pendingScheduledId: undefined,
       pendingUpdateAt: undefined,
+      pendingUpdateReason: undefined,
+      pendingRetryAttempt: undefined,
     });
     return true;
   },
@@ -662,6 +706,8 @@ export const claimDebouncedUpdate = internalMutation({
  * the pinned-message override has not selected a different update target.
  */
 async function demotePreviousDiscordMessage(
+  ctx: ActionCtx,
+  scheduleId: Id<"schedules">,
   channelId: string,
   previousMessageId: string | undefined,
   nextMessageId: string,
@@ -675,8 +721,24 @@ async function demotePreviousDiscordMessage(
       buildSummaryMessage(input, "one-time"),
     );
   } catch (error) {
-    // The new target is already authoritative. A stale label on the previous
-    // message must not cause duplicate posts on a retry.
+    if (error instanceof DiscordApiError) {
+      const retryDelayMs = getDiscordRetryDelayMs(error, 0);
+      if (retryDelayMs !== null) {
+        await ctx.scheduler.runAfter(
+          retryDelayMs,
+          internal.discord.retryDemoteDiscordMessage,
+          {
+            scheduleId,
+            channelId,
+            messageId: previousMessageId,
+            retryAttempt: 1,
+          },
+        );
+        return;
+      }
+    }
+    // The new target is already authoritative. Permanent relabel failures are
+    // logged without causing a duplicate primary delivery.
     console.error("demotePreviousDiscordMessage failed", {
       channelId,
       previousMessageId,
@@ -688,7 +750,7 @@ async function demotePreviousDiscordMessage(
 async function sendSummaryFor(
   ctx: ActionCtx,
   linkId: Id<"scheduleDiscordLinks">,
-  options: { onlyIfChanged: boolean }
+  options: { onlyIfChanged: boolean; messageNonce: string },
 ): Promise<boolean> {
   const link = await ctx.runQuery(internal.discord.getLink, { linkId });
   if (!link) return false;
@@ -772,7 +834,11 @@ async function sendSummaryFor(
   if (!messageId) {
     // A new link needs its original message. Non-Never policies also replace a
     // deleted target or roll forward after their configured age.
-    const res = await postChannelMessage(link.channelId, payload);
+    const res = await postChannelMessage(
+      link.channelId,
+      payload,
+      options.messageNonce,
+    );
     messageId = res.id;
   }
 
@@ -783,6 +849,8 @@ async function sendSummaryFor(
     notified: true,
   });
   await demotePreviousDiscordMessage(
+    ctx,
+    link.scheduleId,
     link.channelId,
     previousMessageId,
     messageId,
@@ -813,6 +881,27 @@ function discordLinkFailureReason(
     return "channel_unavailable";
   }
   return "discord_unavailable";
+}
+
+function createDiscordMessageNonce(): string {
+  return crypto.randomUUID().replaceAll("-", "").slice(0, 25);
+}
+
+function discordDeliveryErrorMessage(error: unknown): string {
+  if (error instanceof DiscordApiError) {
+    const status = error.status === 0 ? "network" : String(error.status);
+    return `Discord API ${status}${error.code ? ` (${error.code})` : ""}: ${error.message}`;
+  }
+  return error instanceof Error ? error.message : "Unknown Discord update error";
+}
+
+function discordRetryReason(error: DiscordApiError): string {
+  if (error.failureKind === "rate_limit") {
+    const scope = error.rateLimit?.scope;
+    return `Discord ${scope ? `${scope} ` : ""}rate limit`;
+  }
+  if (error.failureKind === "server") return "Discord server unavailable";
+  return "Discord network unavailable";
 }
 
 /**
@@ -855,13 +944,36 @@ export const linkScheduleToChannel = action({
         guildName: session.guildName,
       }
     );
+    const messageNonce = createDiscordMessageNonce();
 
     try {
       const sent = await sendSummaryFor(ctx, createdLink.linkId, {
         onlyIfChanged: false,
+        messageNonce,
       });
       if (!sent) throw new Error("Discord link disappeared before initial send");
     } catch (error) {
+      if (error instanceof DiscordApiError) {
+        const retryDelayMs = getDiscordRetryDelayMs(error, 0);
+        if (retryDelayMs !== null) {
+          const scheduled: boolean = await ctx.runMutation(
+            internal.discord.scheduleDiscordDeliveryRetry,
+            {
+              linkId: createdLink.linkId,
+              delayMs: retryDelayMs,
+              retryAttempt: 1,
+              deliveryNonce: messageNonce,
+              reason: discordRetryReason(error),
+            },
+          );
+          if (scheduled) {
+            await ctx.runMutation(internal.discord.deleteInstallSession, {
+              sessionToken: args.sessionToken,
+            });
+            return { ok: true, linkId: createdLink.linkId };
+          }
+        }
+      }
       if (createdLink.created) {
         await ctx.runMutation(internal.discord.deleteLink, {
           linkId: createdLink.linkId,
@@ -887,7 +999,11 @@ export const linkScheduleToChannel = action({
  * came in, this run will have been cancelled & replaced.
  */
 export const sendDebouncedUpdate = internalAction({
-  args: { linkId: v.id("scheduleDiscordLinks") },
+  args: {
+    linkId: v.id("scheduleDiscordLinks"),
+    retryAttempt: v.optional(v.number()),
+    deliveryNonce: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const claimed: boolean = await ctx.runMutation(
       internal.discord.claimDebouncedUpdate,
@@ -895,17 +1011,40 @@ export const sendDebouncedUpdate = internalAction({
     );
     if (!claimed) return;
 
+    const retryAttempt = args.retryAttempt ?? 0;
+    const deliveryNonce = args.deliveryNonce ?? createDiscordMessageNonce();
     try {
-      await sendSummaryFor(ctx, args.linkId, { onlyIfChanged: true });
+      await sendSummaryFor(ctx, args.linkId, {
+        onlyIfChanged: true,
+        messageNonce: deliveryNonce,
+      });
     } catch (error) {
-      const message =
-        error instanceof DiscordApiError
-          ? `Discord API ${error.status}${error.code ? ` (${error.code})` : ""}: ${error.message}`
-          : error instanceof Error
-            ? error.message
-            : "Unknown Discord update error";
+      if (
+        error instanceof DiscordApiError &&
+        retryAttempt < MAX_DISCORD_DELIVERY_RETRIES
+      ) {
+        const retryDelayMs = getDiscordRetryDelayMs(error, retryAttempt);
+        if (retryDelayMs !== null) {
+          await ctx.runMutation(
+            internal.discord.scheduleDiscordDeliveryRetry,
+            {
+              linkId: args.linkId,
+              delayMs: retryDelayMs,
+              retryAttempt: retryAttempt + 1,
+              deliveryNonce,
+              reason: discordRetryReason(error),
+            },
+          );
+          // If a newer debounced update already owns the pending slot, it
+          // supersedes this retry. Either way, no permanent failure is recorded.
+          return;
+        }
+      }
+
+      const message = discordDeliveryErrorMessage(error);
       console.error("Discord debounced update failed", {
         linkId: args.linkId,
+        retryAttempt,
         message,
       });
       await ctx.runMutation(internal.discord.recordLinkUpdateFailure, {
@@ -913,6 +1052,51 @@ export const sendDebouncedUpdate = internalAction({
         error: message.slice(0, 500),
       });
       throw error;
+    }
+  },
+});
+
+export const retryDemoteDiscordMessage = internalAction({
+  args: {
+    scheduleId: v.id("schedules"),
+    channelId: v.string(),
+    messageId: v.string(),
+    retryAttempt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const input = await ctx.runQuery(internal.discord.buildSummaryInput, {
+      scheduleId: args.scheduleId,
+    });
+    if (!input) return;
+
+    try {
+      await editChannelMessage(
+        args.channelId,
+        args.messageId,
+        buildSummaryMessage(input, "one-time"),
+      );
+    } catch (error) {
+      if (
+        error instanceof DiscordApiError &&
+        args.retryAttempt < MAX_DISCORD_DELIVERY_RETRIES
+      ) {
+        const retryDelayMs = getDiscordRetryDelayMs(error, args.retryAttempt);
+        if (retryDelayMs !== null) {
+          await ctx.scheduler.runAfter(
+            retryDelayMs,
+            internal.discord.retryDemoteDiscordMessage,
+            { ...args, retryAttempt: args.retryAttempt + 1 },
+          );
+          return;
+        }
+      }
+      console.error("Discord previous-message relabel failed permanently", {
+        scheduleId: args.scheduleId,
+        channelId: args.channelId,
+        messageId: args.messageId,
+        retryAttempt: args.retryAttempt,
+        error: discordDeliveryErrorMessage(error),
+      });
     }
   },
 });
@@ -1220,6 +1404,8 @@ export const shareInteractionSummary = internalAction({
     channelId: v.string(),
     applicationId: v.string(),
     interactionToken: v.string(),
+    messageNonce: v.string(),
+    retryAttempt: v.optional(v.number()),
   },
   handler: async (
     ctx,
@@ -1246,6 +1432,22 @@ export const shareInteractionSummary = internalAction({
           { content, components: [] },
         );
       } catch (error) {
+        if (error instanceof DiscordApiError) {
+          const retryDelayMs = getDiscordRetryDelayMs(error, 0);
+          if (retryDelayMs !== null) {
+            await ctx.scheduler.runAfter(
+              retryDelayMs,
+              internal.discord.retryDiscordInteractionResponse,
+              {
+                applicationId: args.applicationId,
+                interactionToken: args.interactionToken,
+                content,
+                retryAttempt: 1,
+              },
+            );
+            return result;
+          }
+        }
         console.error("Could not finish the private /when response", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -1279,6 +1481,7 @@ export const shareInteractionSummary = internalAction({
         const posted = await postChannelMessage(
           args.channelId,
           buildSummaryMessage(input, "one-time"),
+          args.messageNonce,
         );
         return await finish({
           ok: true,
@@ -1307,6 +1510,8 @@ export const shareInteractionSummary = internalAction({
             notified: true,
           });
           await demotePreviousDiscordMessage(
+            ctx,
+            link.scheduleId,
             link.channelId,
             link.lastMessageId,
             pinnedMessage.id,
@@ -1315,6 +1520,7 @@ export const shareInteractionSummary = internalAction({
           const posted = await postChannelMessage(
             args.channelId,
             buildSummaryMessage(input, "one-time"),
+            args.messageNonce,
           );
           return await finish({
             ok: true,
@@ -1330,6 +1536,7 @@ export const shareInteractionSummary = internalAction({
         const posted = await postChannelMessage(
           args.channelId,
           buildSummaryMessage(input, "will-update"),
+          args.messageNonce,
         );
         await ctx.runMutation(internal.discord.updateLinkSnapshot, {
           linkId: link._id,
@@ -1338,6 +1545,8 @@ export const shareInteractionSummary = internalAction({
           notified: true,
         });
         await demotePreviousDiscordMessage(
+          ctx,
+          link.scheduleId,
           link.channelId,
           link.lastMessageId,
           posted.id,
@@ -1353,6 +1562,7 @@ export const shareInteractionSummary = internalAction({
       const posted = await postChannelMessage(
         args.channelId,
         buildSummaryMessage(input, "one-time"),
+        args.messageNonce,
       );
       return await finish({
         ok: true,
@@ -1360,12 +1570,64 @@ export const shareInteractionSummary = internalAction({
         willUpdate: false,
       });
     } catch (error) {
+      const retryAttempt = args.retryAttempt ?? 0;
+      if (
+        error instanceof DiscordApiError &&
+        retryAttempt < MAX_DISCORD_DELIVERY_RETRIES
+      ) {
+        const retryDelayMs = getDiscordRetryDelayMs(error, retryAttempt);
+        if (retryDelayMs !== null) {
+          await ctx.scheduler.runAfter(
+            retryDelayMs,
+            internal.discord.shareInteractionSummary,
+            { ...args, retryAttempt: retryAttempt + 1 },
+          );
+          return { ok: false, reason: "send_failed" };
+        }
+      }
       console.error("Discord /when share failed", {
         scheduleId: args.scheduleId,
         channelId: args.channelId,
         error: error instanceof Error ? error.message : String(error),
       });
       return await finish({ ok: false, reason: "send_failed" });
+    }
+  },
+});
+
+export const retryDiscordInteractionResponse = internalAction({
+  args: {
+    applicationId: v.string(),
+    interactionToken: v.string(),
+    content: v.string(),
+    retryAttempt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      await editOriginalInteractionResponse(
+        args.applicationId,
+        args.interactionToken,
+        { content: args.content, components: [] },
+      );
+    } catch (error) {
+      if (
+        error instanceof DiscordApiError &&
+        args.retryAttempt < MAX_DISCORD_DELIVERY_RETRIES
+      ) {
+        const retryDelayMs = getDiscordRetryDelayMs(error, args.retryAttempt);
+        if (retryDelayMs !== null) {
+          await ctx.scheduler.runAfter(
+            retryDelayMs,
+            internal.discord.retryDiscordInteractionResponse,
+            { ...args, retryAttempt: args.retryAttempt + 1 },
+          );
+          return;
+        }
+      }
+      console.error("Discord private /when response failed permanently", {
+        retryAttempt: args.retryAttempt,
+        error: discordDeliveryErrorMessage(error),
+      });
     }
   },
 });

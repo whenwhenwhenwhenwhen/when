@@ -273,6 +273,8 @@ export default defineSchema({
     // Currently scheduled debounced send, if any (so we can cancel + reschedule)
     pendingScheduledId: v.optional(v.id("_scheduled_functions")),
     pendingUpdateAt: v.optional(v.number()),
+    pendingUpdateReason: v.optional(v.string()),
+    pendingRetryAttempt: v.optional(v.number()),
     lastNotifiedAt: v.optional(v.number()),
     lastUpdateAttemptAt: v.optional(v.number()),
     lastUpdateError: v.optional(v.string()),

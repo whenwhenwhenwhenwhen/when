@@ -205,7 +205,7 @@ npx convex run discordSetup:registerGuildCommands '{"guildId":"YOUR_GUILD_ID"}'
 Optional debounce override:
 
 ```bash
-npx convex env set DISCORD_DEBOUNCE_MS 300000
+npx convex env set DISCORD_DEBOUNCE_MS 60000
 ```
 
 Optional default age before a relevant update posts a new summary message

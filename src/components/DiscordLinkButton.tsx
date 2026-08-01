@@ -229,7 +229,13 @@ export function DiscordLinkButton({
                 </p>
               ) : link.pendingUpdateAt ? (
                 <p className={styles.discordLinkStatus}>
-                  Update queued for {formatStatusTime(link.pendingUpdateAt)}
+                  {link.pendingRetryAttempt
+                    ? `Retry ${link.pendingRetryAttempt} queued for `
+                    : "Update queued for "}
+                  {formatStatusTime(link.pendingUpdateAt)}
+                  {link.pendingUpdateReason
+                    ? ` · ${link.pendingUpdateReason}`
+                    : ""}
                 </p>
               ) : link.lastNotifiedAt ? (
                 <p className={styles.discordLinkStatus}>

@@ -9,6 +9,7 @@ import {
   fetchDiscordCurrentUser,
   fetchGuildChannels,
   getDiscordNewMessageAfterMs,
+  getDiscordRetryDelayMs,
   getMissingDiscordInstallConfiguration,
   postChannelMessage,
   shouldPostNewDiscordMessage,
@@ -16,6 +17,7 @@ import {
 } from "./discordHelpers";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -78,6 +80,42 @@ describe("Discord schedule summaries across timezones", () => {
     expect(JSON.stringify(buildSummaryMessage(input, "one-time"))).toContain(
       "One time message",
     );
+  });
+
+  it("keeps the footer inside Discord's 6,000-character embed total", () => {
+    const payload = buildSummaryMessage(
+      {
+        ...input,
+        schedule: {
+          ...input.schedule,
+          title: "T".repeat(400),
+          description: "D".repeat(5_000),
+        },
+        profileNames: {
+          alice: "A".repeat(2_000),
+          bob: "B".repeat(2_000),
+          charlie: "C".repeat(2_000),
+        },
+      },
+      "will-update",
+    );
+    const embed = (
+      payload.embeds as Array<{
+        title?: string;
+        description?: string;
+        footer?: { text?: string };
+        fields?: Array<{ name: string; value: string }>;
+      }>
+    )[0];
+    const total =
+      (embed.title?.length ?? 0) +
+      (embed.description?.length ?? 0) +
+      (embed.footer?.text?.length ?? 0) +
+      (embed.fields ?? []).reduce(
+        (sum, field) => sum + field.name.length + field.value.length,
+        0,
+      );
+    expect(total).toBeLessThanOrEqual(6_000);
   });
 });
 
@@ -211,6 +249,165 @@ describe("Discord REST failures", () => {
       expect.objectContaining<Partial<DiscordApiError>>({ status: 401 }),
     );
   });
+
+  it("honours retry_after before retrying a short rate limit", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 20028,
+            message: "Channel write rate limit",
+            retry_after: 0.05,
+          }),
+          {
+            status: 429,
+            headers: {
+              "Retry-After": "0.05",
+              "X-RateLimit-Bucket": "write-bucket",
+              "X-RateLimit-Remaining": "0",
+              "X-RateLimit-Reset-After": "0.05",
+              "X-RateLimit-Scope": "shared",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "message" }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = postChannelMessage(
+      "short-rate-channel",
+      { embeds: [] },
+      "stable-nonce",
+    );
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(result).resolves.toEqual({ id: "message" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual(
+      expect.objectContaining({
+        nonce: "stable-nonce",
+        enforce_nonce: true,
+      }),
+    );
+  });
+
+  it("surfaces long rate limits with parsed metadata for a durable retry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          message: "You are being rate limited.",
+          retry_after: 12.5,
+          global: false,
+        }),
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Bucket": "user-bucket",
+            "X-RateLimit-Scope": "user",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await postChannelMessage("long-rate-channel", {
+      embeds: [],
+    }).catch((caught: unknown) => caught);
+    expect(error).toEqual(
+      expect.objectContaining<Partial<DiscordApiError>>({
+        status: 429,
+        failureKind: "rate_limit",
+        retryAfterMs: 12_500,
+        retryable: true,
+      }),
+    );
+    expect((error as DiscordApiError).rateLimit).toEqual(
+      expect.objectContaining({ global: false, scope: "user" }),
+    );
+    expect(getDiscordRetryDelayMs(error as DiscordApiError, 0)).toBeGreaterThan(
+      12_500,
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("waits for an exhausted success bucket before the next request", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "first" }), {
+          status: 200,
+          headers: {
+            "X-RateLimit-Bucket": "success-bucket",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset-After": "0.05",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "second" }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      postChannelMessage("success-bucket-channel", { embeds: [] }),
+    ).resolves.toEqual({ id: "first" });
+    const second = postChannelMessage("success-bucket-channel", { embeds: [] });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(200);
+    await expect(second).resolves.toEqual({ id: "second" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries Discord 5xx responses with bounded backoff", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "Gateway unavailable" }), {
+          status: 502,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "recovered" }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = postChannelMessage("server-retry-channel", { embeds: [] });
+    await vi.advanceTimersByTimeAsync(600);
+    await expect(result).resolves.toEqual({ id: "recovered" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry permanent permission failures", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ code: 50013, message: "Missing Permissions" }),
+        { status: 403 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await postChannelMessage("permission-channel", {
+      embeds: [],
+    }).catch((caught: unknown) => caught);
+    expect(error).toEqual(
+      expect.objectContaining<Partial<DiscordApiError>>({
+        failureKind: "permission",
+        retryable: false,
+      }),
+    );
+    expect(getDiscordRetryDelayMs(error as DiscordApiError, 0)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });
 
 describe("Discord OAuth identity", () => {
@@ -243,10 +440,12 @@ describe("Discord OAuth identity", () => {
       id: "discord-user",
       username: "lee",
     });
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://discord.com/api/v10/users/@me",
-      { headers: { Authorization: "Bearer user-token" } },
     );
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer user-token");
+    expect(headers.get("User-Agent")).toContain("DiscordBot");
   });
 });
 
