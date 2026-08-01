@@ -96,6 +96,12 @@ jobs:
           CONVEX_SELF_HOSTED_ADMIN_KEY: ${{ secrets.CONVEX_SELF_HOSTED_ADMIN_KEY }}
         run: pnpm exec convex deploy
 
+      - name: Register Discord commands
+        env:
+          CONVEX_SELF_HOSTED_URL: ${{ secrets.CONVEX_SELF_HOSTED_URL }}
+          CONVEX_SELF_HOSTED_ADMIN_KEY: ${{ secrets.CONVEX_SELF_HOSTED_ADMIN_KEY }}
+        run: pnpm exec convex run discordSetup:registerCommands
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
