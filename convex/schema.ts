@@ -59,14 +59,11 @@ export default defineSchema({
     isLocked: v.optional(v.boolean()),
     anyoneCanLock: v.optional(v.boolean()),
     lockEditors: v.optional(v.array(v.id("userProfiles"))),
-    // Legacy field name: true means unlisted, not access-controlled.
-    isPrivate: v.optional(v.boolean()),
     acceptParticipation: v.optional(v.boolean()), // undefined/true = open, false = closed
     createdAt: v.number(),
   })
     .index("by_creatorProfileId", ["creatorProfileId"])
     .index("by_createdAt", ["createdAt"])
-    .index("by_isPrivate_and_createdAt", ["isPrivate", "createdAt"])
     .index("by_type_and_createdAt", ["type", "createdAt"]),
 
   // Blocked profiles per schedule (creator can block users from participating)

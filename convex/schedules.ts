@@ -235,56 +235,18 @@ async function enrichSchedule(
   };
 }
 
-// List current public schedules plus schedules associated with the viewer.
+// List schedules created by or participated in by the viewer.
 export const list = query({
   args: {
     anonymousId: v.optional(v.string()),
     currentDate: v.string(),
   },
   handler: async (ctx, args) => {
-    const explicitlyPublicSchedules = await ctx.db
-      .query("schedules")
-      .withIndex("by_isPrivate_and_createdAt", (q) =>
-        q.eq("isPrivate", false)
-      )
-      .order("desc")
-      .take(SCHEDULE_LIST_LIMIT);
-
-    const legacyPublicSchedules = await ctx.db
-      .query("schedules")
-      .withIndex("by_isPrivate_and_createdAt", (q) =>
-        q.eq("isPrivate", undefined)
-      )
-      .order("desc")
-      .take(SCHEDULE_LIST_LIMIT);
-
-    const listedSchedules = [
-      ...explicitlyPublicSchedules,
-      ...legacyPublicSchedules,
-    ]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, SCHEDULE_LIST_LIMIT);
-
     const viewer = await getCallerProfile(ctx, args.anonymousId);
     if (!viewer) {
-      const publicSchedules = sortSchedulesAlphabetically(
-        listedSchedules.filter(
-          (schedule) => !isPastOneOffSchedule(schedule, args.currentDate)
-        )
-      );
-
       return {
-        participated: [],
-        publicSchedules: await Promise.all(
-          publicSchedules.map((schedule) =>
-            enrichSchedule(ctx, schedule, {
-              isParticipated: false,
-              isArchived: false,
-              isExpired: false,
-              isManuallyArchived: false,
-            })
-          )
-        ),
+        mySchedules: [],
+        participatedIn: [],
         archived: [],
         hasArchived: false,
       };
@@ -318,12 +280,9 @@ export const list = query({
         .take(PROFILE_AVAILABILITY_LINK_SCAN_LIMIT),
     ]);
 
-    const associatedScheduleIds = new Set<string>();
-    for (const schedule of createdSchedules) {
-      associatedScheduleIds.add(schedule._id);
-    }
+    const participatedScheduleIds = new Set<string>();
     for (const selection of selections) {
-      associatedScheduleIds.add(selection.scheduleId);
+      participatedScheduleIds.add(selection.scheduleId);
     }
     const availabilityLinksWithNominations = await Promise.all(
       availabilityLinks.map(async (link) => ({
@@ -333,26 +292,26 @@ export const list = query({
     );
     for (const { link, savedAvailability } of availabilityLinksWithNominations) {
       if ((savedAvailability?.slots.length ?? 0) > 0) {
-        associatedScheduleIds.add(link.scheduleId);
+        participatedScheduleIds.add(link.scheduleId);
       }
     }
 
-    const listedScheduleIds = new Set(
-      listedSchedules.map((schedule) => schedule._id as string)
+    const createdScheduleIds = new Set(
+      createdSchedules.map((schedule) => schedule._id as string)
     );
-    const associatedSchedules = await Promise.all(
-      [...associatedScheduleIds]
-        .filter((scheduleId) => !listedScheduleIds.has(scheduleId))
+    const participatedSchedules = await Promise.all(
+      [...participatedScheduleIds]
+        .filter((scheduleId) => !createdScheduleIds.has(scheduleId))
         .map((scheduleId) =>
           ctx.db.get(scheduleId as Id<"schedules">)
         )
     );
 
     const candidateSchedules = new Map<string, Doc<"schedules">>();
-    for (const schedule of listedSchedules) {
+    for (const schedule of createdSchedules) {
       candidateSchedules.set(schedule._id, schedule);
     }
-    for (const schedule of associatedSchedules) {
+    for (const schedule of participatedSchedules) {
       if (schedule) candidateSchedules.set(schedule._id, schedule);
     }
 
@@ -373,25 +332,26 @@ export const list = query({
       })
     );
 
+    const mySchedules: Doc<"schedules">[] = [];
     const participated: Doc<"schedules">[] = [];
-    const publicSchedules: Doc<"schedules">[] = [];
     const archived: Doc<"schedules">[] = [];
 
     for (const schedule of candidateSchedules.values()) {
       if (blockedScheduleIds.has(schedule._id)) continue;
 
-      const isParticipated = associatedScheduleIds.has(schedule._id);
+      const isCreator = schedule.creatorProfileId === viewer._id;
+      const isParticipated = participatedScheduleIds.has(schedule._id);
       const isExpired = isPastOneOffSchedule(schedule, args.currentDate);
       const isManuallyArchived =
-        isParticipated && archiveByScheduleId.has(schedule._id);
+        (isCreator || isParticipated) && archiveByScheduleId.has(schedule._id);
       const isArchived = isExpired || isManuallyArchived;
 
       if (isArchived) {
-        if (isParticipated) archived.push(schedule);
-      } else if (isParticipated) {
+        archived.push(schedule);
+      } else if (isCreator) {
+        mySchedules.push(schedule);
+      } else {
         participated.push(schedule);
-      } else if (schedule.isPrivate !== true) {
-        publicSchedules.push(schedule);
       }
     }
 
@@ -400,8 +360,9 @@ export const list = query({
       isParticipated: boolean
     ) => {
       const isExpired = isPastOneOffSchedule(schedule, args.currentDate);
+      const isCreator = schedule.creatorProfileId === viewer._id;
       const isManuallyArchived =
-        isParticipated && archiveByScheduleId.has(schedule._id);
+        (isCreator || isParticipated) && archiveByScheduleId.has(schedule._id);
       return enrichSchedule(ctx, schedule, {
         isParticipated,
         isArchived: isExpired || isManuallyArchived,
@@ -410,28 +371,32 @@ export const list = query({
       });
     };
 
-    const [enrichedParticipated, enrichedPublic, enrichedArchived] =
+    const [enrichedMySchedules, enrichedParticipated, enrichedArchived] =
       await Promise.all([
+        Promise.all(
+          sortSchedulesAlphabetically(mySchedules)
+            .slice(0, SCHEDULE_LIST_LIMIT)
+            .map((schedule) =>
+              enrich(schedule, participatedScheduleIds.has(schedule._id))
+            )
+        ),
         Promise.all(
           sortSchedulesAlphabetically(participated)
             .slice(0, SCHEDULE_LIST_LIMIT)
             .map((schedule) => enrich(schedule, true))
         ),
         Promise.all(
-          sortSchedulesAlphabetically(publicSchedules)
-            .slice(0, SCHEDULE_LIST_LIMIT)
-            .map((schedule) => enrich(schedule, false))
-        ),
-        Promise.all(
           sortSchedulesAlphabetically(archived)
             .slice(0, SCHEDULE_LIST_LIMIT)
-            .map((schedule) => enrich(schedule, true))
+            .map((schedule) =>
+              enrich(schedule, participatedScheduleIds.has(schedule._id))
+            )
         ),
       ]);
 
     return {
-      participated: enrichedParticipated,
-      publicSchedules: enrichedPublic,
+      mySchedules: enrichedMySchedules,
+      participatedIn: enrichedParticipated,
       archived: enrichedArchived,
       hasArchived: enrichedArchived.length > 0,
     };
@@ -717,7 +682,6 @@ export const create = mutation({
     dateRangeEnd: v.optional(v.string()),
     recurringStartDate: v.optional(v.string()),
     creatorTimezone: v.string(),
-    isPrivate: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const caller = await requireCallerProfile(ctx, args.anonymousId);
@@ -734,7 +698,6 @@ export const create = mutation({
       dateRangeEnd: args.dateRangeEnd,
       recurringStartDate: args.recurringStartDate,
       creatorTimezone: args.creatorTimezone,
-      isPrivate: args.isPrivate,
       createdAt: Date.now(),
     });
   },
@@ -751,7 +714,6 @@ export const update = mutation({
     dateRangeStart: v.optional(v.string()),
     dateRangeEnd: v.optional(v.string()),
     recurringStartDate: v.optional(v.string()),
-    isPrivate: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const schedule = await ctx.db.get(args.scheduleId);
@@ -761,7 +723,6 @@ export const update = mutation({
     const cleanUpdates: Record<string, unknown> = {};
     if (args.title !== undefined) cleanUpdates.title = args.title;
     if (args.description !== undefined) cleanUpdates.description = args.description;
-    if (args.isPrivate !== undefined) cleanUpdates.isPrivate = args.isPrivate || undefined;
 
     // Type change: only one-off -> recurring is allowed
     if (args.type !== undefined && args.type !== schedule.type) {

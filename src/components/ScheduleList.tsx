@@ -44,9 +44,6 @@ function ScheduleCards({ schedules }: { schedules: ListedSchedule[] }) {
                 >
                   {schedule.type === "one-off" ? "One-off" : "Recurring"}
                 </span>
-                {schedule.isPrivate && (
-                  <span className={styles.miniBadge}>Unlisted</span>
-                )}
                 {schedule.isArchived && (
                   <span className={styles.miniBadge}>
                     {schedule.isExpired ? "Ended" : "Archived"}
@@ -95,7 +92,7 @@ export function ScheduleList() {
   }, [schedules]);
 
   const currentScheduleCount = schedules
-    ? schedules.participated.length + schedules.publicSchedules.length
+    ? schedules.mySchedules.length + schedules.participatedIn.length
     : 0;
 
   return (
@@ -157,23 +154,25 @@ export function ScheduleList() {
         </div>
       ) : (
         <div className={styles.scheduleSections}>
-          {schedules.participated.length > 0 && (
+          {schedules.mySchedules.length > 0 && (
             <section className={styles.scheduleSection}>
-              <h2 className={styles.scheduleSectionTitle}>Participated in</h2>
-              <ScheduleCards schedules={schedules.participated} />
+              <h2 className={styles.scheduleSectionTitle}>My Schedules</h2>
+              <ScheduleCards schedules={schedules.mySchedules} />
             </section>
           )}
 
-          {schedules.publicSchedules.length > 0 && (
+          {schedules.participatedIn.length > 0 && (
             <section
               className={cx(
                 styles.scheduleSection,
-                schedules.participated.length > 0 &&
+                schedules.mySchedules.length > 0 &&
                   styles.scheduleSectionDivided,
               )}
             >
-              <h2 className={styles.scheduleSectionTitle}>Public schedules</h2>
-              <ScheduleCards schedules={schedules.publicSchedules} />
+              <h2 className={styles.scheduleSectionTitle}>
+                Schedules I&apos;ve participated in
+              </h2>
+              <ScheduleCards schedules={schedules.participatedIn} />
             </section>
           )}
         </div>

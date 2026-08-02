@@ -105,7 +105,6 @@ const unlistedScheduleId = insert("schedules", {
   creatorProfileId: aliceProfileId,
   recurringStartDate: isoDate(-14),
   creatorTimezone: "America/New_York",
-  isPrivate: true,
   createdAt: Date.now() - 86400000 * 2,
   acceptParticipation: true,
 });

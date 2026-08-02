@@ -15,7 +15,6 @@ interface Schedule {
   dateRangeStart?: string;
   dateRangeEnd?: string;
   recurringStartDate?: string;
-  isPrivate?: boolean;
 }
 
 interface Props {
@@ -59,7 +58,6 @@ export function EditScheduleModal({
   const [recurringStartDate, setRecurringStartDate] = useState(
     schedule.recurringStartDate || ""
   );
-  const [isPrivate, setIsPrivate] = useState(schedule.isPrivate || false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -85,7 +83,6 @@ export function EditScheduleModal({
           type === "recurring" && recurringStartDate
             ? recurringStartDate
             : undefined,
-        isPrivate,
       });
       onClose();
     } catch (err) {
@@ -272,30 +269,6 @@ export function EditScheduleModal({
               />
             </div>
           )}
-
-          <div>
-            <div className={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                id="edit-is-private"
-                checked={isPrivate}
-                onChange={(e) => setIsPrivate(e.target.checked)}
-                className={styles.checkbox}
-              />
-              <label
-                htmlFor="edit-is-private"
-                className={styles.checkboxOption}
-              >
-                Unlisted schedule
-              </label>
-            </div>
-            {isPrivate && (
-              <p className={styles.helperText}>
-                Unlisted schedules are hidden from the public list but can still
-                be viewed by anyone with the link.
-              </p>
-            )}
-          </div>
 
           {/* Blocked users section */}
           {blockedProfiles && blockedProfiles.length > 0 && (

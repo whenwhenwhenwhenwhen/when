@@ -76,7 +76,6 @@ function schedulesCreate(args: Args) {
     dateRangeEnd: args.dateRangeEnd,
     recurringStartDate: args.recurringStartDate,
     creatorTimezone: args.creatorTimezone,
-    isPrivate: args.isPrivate,
     createdAt: Date.now(),
   });
 }
@@ -88,7 +87,6 @@ function schedulesUpdate(args: Args) {
   const updates: Record<string, unknown> = {};
   if (args.title !== undefined) updates.title = args.title;
   if (args.description !== undefined) updates.description = args.description;
-  if (args.isPrivate !== undefined) updates.isPrivate = args.isPrivate || undefined;
 
   // Simplified type change — skip selection conversion for design mode
   if (args.type !== undefined) updates.type = args.type;

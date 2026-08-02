@@ -31,7 +31,6 @@ export function CreateScheduleModal({ onClose }: Props) {
   const [dateEnd, setDateEnd] = useState("");
   const [recurringStartDate, setRecurringStartDate] = useState("");
   const [creatorName, setCreatorName] = useState(displayName || "");
-  const [isPrivate, setIsPrivate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -66,7 +65,6 @@ export function CreateScheduleModal({ onClose }: Props) {
         dateRangeEnd: type === "one-off" ? dateEnd : undefined,
         recurringStartDate: type === "recurring" && recurringStartDate ? recurringStartDate : undefined,
         creatorTimezone: timezone || detectTimezone(),
-        isPrivate: isPrivate || undefined,
       });
 
       navigate(`/schedule/${scheduleId}`);
@@ -212,27 +210,6 @@ export function CreateScheduleModal({ onClose }: Props) {
               />
             </div>
           )}
-
-          <div>
-            <div className={styles.checkboxRow}>
-              <input
-                type="checkbox"
-                id="is-private"
-                checked={isPrivate}
-                onChange={(e) => setIsPrivate(e.target.checked)}
-                className={styles.checkbox}
-              />
-              <label htmlFor="is-private" className={styles.checkboxOption}>
-                Unlisted schedule
-              </label>
-            </div>
-            {isPrivate && (
-              <p className={styles.helperText}>
-                Unlisted schedules are hidden from the public list but can still
-                be viewed by anyone with the link.
-              </p>
-            )}
-          </div>
 
           <div className={styles.faintText}>
             My timezone: {timezone}. Others will see schedules in their own timezone.

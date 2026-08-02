@@ -109,32 +109,17 @@ function enrichListedSchedule(
 
 function schedulesList(args: Args) {
   const viewer = getViewerProfile(args);
-  const publicSchedules = store
-    .query("schedules")
-    .filter((schedule) => !schedule.isPrivate);
 
   if (!viewer) {
     return {
-      participated: [],
-      publicSchedules: publicSchedules
-        .filter((schedule) => !isPastOneOff(schedule, args.currentDate))
-        .sort((a, b) => a.title.localeCompare(b.title))
-        .map((schedule) =>
-          enrichListedSchedule(schedule, {
-            isParticipated: false,
-            isArchived: false,
-            isExpired: false,
-            isManuallyArchived: false,
-          }),
-        ),
+      mySchedules: [],
+      participatedIn: [],
       archived: [],
       hasArchived: false,
     };
   }
 
-  const candidates = new Map(
-    publicSchedules.map((schedule) => [schedule._id, schedule]),
-  );
+  const candidates = new Map<string, Args>();
   for (const schedule of store.query("schedules")) {
     if (
       schedule.creatorProfileId === viewer._id ||
@@ -149,8 +134,8 @@ function schedulesList(args: Args) {
     .filter((archive) => archive.profileId === viewer._id);
   const archivedIds = new Set(archives.map((archive) => archive.scheduleId));
 
+  const mySchedules: Args[] = [];
   const participated: Args[] = [];
-  const remainingPublic: Args[] = [];
   const archived: Args[] = [];
 
   for (const schedule of candidates.values()) {
@@ -163,11 +148,11 @@ function schedulesList(args: Args) {
     const isManuallyArchived =
       isParticipated && archivedIds.has(schedule._id);
     if (isExpired || isManuallyArchived) {
-      if (isParticipated) archived.push(schedule);
-    } else if (isParticipated) {
+      archived.push(schedule);
+    } else if (isCreator) {
+      mySchedules.push(schedule);
+    } else {
       participated.push(schedule);
-    } else if (!schedule.isPrivate) {
-      remainingPublic.push(schedule);
     }
   }
 
@@ -187,13 +172,18 @@ function schedulesList(args: Args) {
     .sort(byTitle)
     .map((schedule) => enrich(schedule, true));
 
+  const enrichedMySchedules = mySchedules
+    .sort(byTitle)
+    .map((schedule) =>
+      enrich(schedule, hasNominations(schedule._id, viewer._id)),
+    );
+  const enrichedParticipated = participated
+    .sort(byTitle)
+    .map((schedule) => enrich(schedule, true));
+
   return {
-    participated: participated
-      .sort(byTitle)
-      .map((schedule) => enrich(schedule, true)),
-    publicSchedules: remainingPublic
-      .sort(byTitle)
-      .map((schedule) => enrich(schedule, false)),
+    mySchedules: enrichedMySchedules,
+    participatedIn: enrichedParticipated,
     archived: enrichedArchived,
     hasArchived: enrichedArchived.length > 0,
   };
