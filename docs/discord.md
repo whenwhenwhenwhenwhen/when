@@ -3,7 +3,7 @@
 When?'s Discord integration provides two related features:
 
 - A schedule creator can link a schedule to a Discord text or announcement
-  channel. The app posts a summary embed and either edits the latest summary or
+channel. The app posts a summary embed and either edits the latest summary or
   starts a fresh message when the schedule's locked times change.
 - The `/when` command lets a Discord user choose from schedules created by or
   participated in by their connected When? profile, then post a summary into
@@ -227,6 +227,10 @@ Every public summary identifies its lifecycle in the embed footer:
 - **One time message.** is an informational `/when` share that is not currently
   maintained.
 
+Schedule times use Discord's Unix timestamp markup, so every viewer sees dates
+and times in their own Discord locale and timezone. Adjacent 30-minute cells
+with the same nomination details are rendered as one start-to-end block.
+
 For a schedule linked to the current channel, an unpinned `/when` share becomes
 the new maintained message only when its effective **Start a new message after**
 setting is a positive duration. With **Always update the latest message** (`0`)
@@ -253,7 +257,7 @@ again. Availability changes only queue an update when they affect a currently
 locked slot.
 
 The initial message is sent immediately when a channel is linked. On a later
-relevant change, When? checks the last successful send or edit:
+relevant change, When? checks the maintained target message's creation time:
 
 - **Never** (`-1`) always edits the original linked message and never creates a
   replacement. If the original was deleted, the channel diagnostic reports a
@@ -276,7 +280,17 @@ the current schedule data and changes its footer from **Will update.** to **One
 time message.** The new target receives **Will update.**.
 
 Each linked channel can override the deployment default with **Start a new
-message after** in **Schedule options → Discord**.
+message after** in **Schedule options → Discord**. Recurring schedules also
+offer **DST change notifications**, enabled by default for newly linked
+channels. When enabled, an upcoming schedule or
+participant UTC-offset change posts a fresh localized summary regardless of
+the age policy, identifies the shifting participants, and reports participants
+who have fallen out of at least one locked block. A matching pinned summary
+still remains the maintained target instead of creating a duplicate.
+
+Unlinking a channel queues deletion of every message recorded as part of that
+channel link's lifecycle, including older rollover targets. Messages explicitly
+created through `/when` are recorded separately and are preserved.
 
 Open **Schedule options → Discord** to see each channel's diagnostics:
 
@@ -294,8 +308,9 @@ Detailed failures also appear in Convex logs under
 
 ### Exact delivery and timer chain
 
-There is no background Discord polling or periodic cron job. Work begins only
-from a relevant When? mutation, a link action, or a `/when` interaction.
+Most work begins from a relevant When? mutation, a link action, or a `/when`
+interaction. A separate six-hour recurring projection job keeps absolute
+Discord timestamps pointing at the upcoming weekdays and detects DST changes.
 
 For schedule-driven updates:
 
@@ -316,13 +331,29 @@ For schedule-driven updates:
 8. Otherwise it selects the pinned/original/latest/new message according to the
    configured message policy and performs the Discord REST operations.
 9. After success, When? stores the snapshot, maintained message ID, and the
-   successful send/edit time. A previous update target is relabelled in a
+   target message's creation time. A previous update target is relabelled in a
    separate idempotent edit.
 
 `DISCORD_NEW_MESSAGE_AFTER_MS` is not a scheduled timer. Its six-hour default is
 an age threshold evaluated only when step 8 runs, using the last successful
-Discord send/edit time. Likewise, a newly pinned message is discovered on the
+Discord target-message creation time. Likewise, a newly pinned message is discovered on the
 next relevant delivery or `/when` share; pinning alone does not wake Convex.
+
+For recurring timestamp and DST refreshes:
+
+1. Every six hours, a bounded dispatcher walks linked channels and schedules a
+   refresh action per link.
+2. One-off schedules exit without a Discord request. Recurring schedules build
+   the next occurrence of each weekday in the schedule timezone and compare it
+   with the stored projection.
+3. A normal weekday rollover edits the maintained message in place and does
+   not reset or invoke the age threshold.
+4. If DST notifications are enabled and a new transition appears within the
+   upcoming eight-day projection, When? compares participant availability with
+   the prior projection and posts a fresh message. The **Never** policy adopts
+   that DST message as its new anchor; pinned summaries are edited in place.
+5. The transition key is stored so the same DST change produces only one fresh
+   notification. After it passes, the notice is removed on a later refresh.
 
 For `/when`:
 

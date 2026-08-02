@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildDiscordDstNotice,
+  buildDiscordProjectionSnapshot,
   buildLockedSlotSnapshot,
   buildSummaryMessage,
+  deleteChannelMessage,
   discordMessageMatchesSchedule,
   DiscordApiError,
   exchangeDiscordOAuthCode,
@@ -75,10 +78,91 @@ describe("Discord schedule summaries across timezones", () => {
     const rendered = JSON.stringify(payload);
     expect(rendered).toContain("Alice");
     expect(rendered).toContain("Bob");
-    expect(rendered).toContain("America/New_York");
+    expect(rendered).toContain("<t:");
+    expect(rendered).toContain("Times display in your Discord timezone");
     expect(rendered).toContain("Will update");
     expect(JSON.stringify(buildSummaryMessage(input, "one-time"))).toContain(
       "One time message",
+    );
+  });
+
+  it("groups contiguous half-hour cells into localized Discord time blocks", () => {
+    const payload = buildSummaryMessage(
+      {
+        ...input,
+        schedule: {
+          ...input.schedule,
+          lockedSlots: [
+            { dayKey: "1", timeSlot: "09:00" },
+            { dayKey: "1", timeSlot: "09:30" },
+            { dayKey: "1", timeSlot: "10:00" },
+          ],
+        },
+        selections: [
+          ...input.selections.filter((selection) => selection.profileId !== "alice"),
+          ...["09:00", "09:30", "10:00"].map((timeSlot) => ({
+            profileId: "alice",
+            dayKey: "1",
+            timeSlot,
+            timezone: "America/New_York",
+            state: "can-do" as const,
+          })),
+        ],
+      },
+      "will-update",
+    );
+    const fields = (
+      payload.embeds as Array<{
+        fields: Array<{ name: string; value: string }>;
+      }>
+    )[0].fields;
+    const locked = fields.find((field) => field.name === "Locked-in times");
+    expect(locked?.value.match(/🔒/g)).toHaveLength(1);
+    expect(locked?.value.match(/<t:/g)).toHaveLength(2);
+    expect(locked?.value).toContain("Alice");
+  });
+
+  it("detects an upcoming participant DST shift and displaced availability", () => {
+    const dstInput: SummaryInput = {
+      schedule: {
+        _id: "dst-schedule",
+        title: "DST schedule",
+        type: "recurring",
+        creatorTimezone: "UTC",
+        lockedSlots: [{ dayKey: "1", timeSlot: "13:00" }],
+      },
+      profileNames: { alice: "Alice" },
+      selections: [
+        {
+          profileId: "alice",
+          dayKey: "1",
+          timeSlot: "09:00",
+          timezone: "America/New_York",
+          state: "can-do",
+        },
+      ],
+      referenceTimeMs: Date.parse("2026-10-30T12:00:00Z"),
+      appBaseUrl: "https://example.com",
+    };
+    const previousProjection = JSON.stringify({
+      occurrences: { "1|13:00": 0 },
+      availability: { "1|13:00": { alice: "can-do" } },
+    });
+    const notice = buildDiscordDstNotice(dstInput, previousProjection);
+
+    expect(notice?.participantShifts).toEqual([
+      expect.objectContaining({
+        name: "Alice",
+        timezone: "America/New_York",
+        offsetChangeMinutes: -60,
+      }),
+    ]);
+    expect(notice?.noLongerAvailable).toEqual(["Alice"]);
+    expect(
+      JSON.stringify(buildSummaryMessage(dstInput, "will-update", notice)),
+    ).toContain("Upcoming DST change");
+    expect(buildDiscordProjectionSnapshot(dstInput)).toContain(
+      '"1|13:00"',
     );
   });
 
@@ -213,6 +297,30 @@ describe("Discord pinned schedule messages", () => {
 });
 
 describe("Discord REST failures", () => {
+  it("deletes the bot's own tracked messages and treats an absent message as clean", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ code: 10008, message: "Unknown Message" }),
+          { status: 404 },
+        ),
+      );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      deleteChannelMessage("channel", "message"),
+    ).resolves.toBeUndefined();
+    await expect(
+      deleteChannelMessage("channel", "already-gone"),
+    ).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   it("surfaces a rejected initial message instead of returning false success", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal(

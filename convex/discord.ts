@@ -1,5 +1,4 @@
 import { v } from "convex/values";
-import { DateTime } from "luxon";
 import {
   query,
   mutation,
@@ -11,13 +10,17 @@ import {
   QueryCtx,
   MutationCtx,
 } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
 import { Id, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import {
   buildSummaryMessage,
   buildLockedSlotSnapshot,
+  buildDiscordDstNotice,
+  buildDiscordProjectionSnapshot,
   postChannelMessage,
   editChannelMessage,
+  deleteChannelMessage,
   editOriginalInteractionResponse,
   fetchGuildChannels,
   fetchGuildInfo,
@@ -196,6 +199,7 @@ export const linksForScheduleSummary = query({
       lastUpdateAttemptAt: l.lastUpdateAttemptAt,
       lastUpdateError: l.lastUpdateError,
       newMessageAfterMs: l.newMessageAfterMs,
+      dstChangeNotifications: l.dstChangeNotifications ?? false,
     }));
   },
 });
@@ -223,7 +227,10 @@ export const getDeliveryDefaults = action({
  * and the debounced update path. Centralised so format stays consistent.
  */
 export const buildSummaryInput = internalQuery({
-  args: { scheduleId: v.id("schedules") },
+  args: {
+    scheduleId: v.id("schedules"),
+    referenceTimeMs: v.number(),
+  },
   handler: async (ctx, args): Promise<SummaryInput | null> => {
     const schedule = await ctx.db.get(args.scheduleId);
     if (!schedule) return null;
@@ -279,7 +286,9 @@ export const buildSummaryInput = internalQuery({
     const profileNames: Record<string, string> = {};
     for (const id of profileIds) {
       const p = await ctx.db.get(id as Id<"userProfiles">);
-      if (p) profileNames[id] = p.displayName;
+      if (p) {
+        profileNames[id] = p.displayName;
+      }
     }
 
     return {
@@ -289,14 +298,13 @@ export const buildSummaryInput = internalQuery({
         description: schedule.description,
         type: schedule.type,
         creatorTimezone: schedule.creatorTimezone,
+        recurringStartDate: schedule.recurringStartDate,
         lockedSlots: schedule.lockedSlots,
         isLocked: schedule.isLocked,
       },
       profileNames,
       selections: flat,
-      referenceDate: DateTime.now()
-        .setZone(schedule.creatorTimezone)
-        .toISODate()!,
+      referenceTimeMs: args.referenceTimeMs,
       appBaseUrl: getAppBaseUrl(),
     };
   },
@@ -505,6 +513,7 @@ export const createLink = internalMutation({
       guildName: args.guildName,
       linkedByProfileId: args.profileId,
       linkedAt: Date.now(),
+      dstChangeNotifications: true,
     });
     return { linkId, created: true };
   },
@@ -542,6 +551,16 @@ export const unlink = mutation({
         // already fired
       }
     }
+    await ctx.scheduler.runAfter(
+      0,
+      internal.discord.cleanupUnlinkedDiscordMessages,
+      {
+        linkId: link._id,
+        channelId: link.channelId,
+        legacyOriginalMessageId: link.originalMessageId,
+        retryAttempt: 0,
+      },
+    );
     await ctx.db.delete(args.linkId);
   },
 });
@@ -586,12 +605,51 @@ export const setNewMessageAfter = mutation({
   },
 });
 
+export const setDstChangeNotifications = mutation({
+  args: {
+    linkId: v.id("scheduleDiscordLinks"),
+    enabled: v.boolean(),
+    anonymousId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const link = await ctx.db.get(args.linkId);
+    if (!link) throw new Error("Discord link not found");
+    const schedule = await ctx.db.get(link.scheduleId);
+    const profile = await getCallerProfile(ctx, {
+      anonymousId: args.anonymousId,
+    });
+    if (
+      schedule?.creatorProfileId !== profile._id &&
+      link.linkedByProfileId !== profile._id
+    ) {
+      throw new Error("Not authorized to update this Discord link");
+    }
+
+    await ctx.db.patch(link._id, {
+      dstChangeNotifications: args.enabled,
+      lastDstNotificationKey: args.enabled
+        ? link.lastDstNotificationKey
+        : undefined,
+    });
+    if (args.enabled && schedule?.type === "recurring") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.discord.refreshRecurringDiscordLink,
+        { linkId: link._id },
+      );
+    }
+  },
+});
+
 export const updateLinkSnapshot = internalMutation({
   args: {
     linkId: v.id("scheduleDiscordLinks"),
     snapshotJson: v.string(),
+    projectionSnapshotJson: v.string(),
+    dstNotificationKey: v.union(v.string(), v.null()),
     messageId: v.optional(v.string()),
     notified: v.boolean(),
+    replaceOriginal: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const link = await ctx.db.get(args.linkId);
@@ -599,17 +657,69 @@ export const updateLinkSnapshot = internalMutation({
     const now = Date.now();
     const patch: Partial<Doc<"scheduleDiscordLinks">> = {
       lastSnapshotJson: args.snapshotJson,
+      lastProjectionSnapshotJson: args.projectionSnapshotJson,
+      lastDstNotificationKey: args.dstNotificationKey ?? undefined,
       lastUpdateAttemptAt: now,
       lastUpdateError: undefined,
     };
     if (args.notified) patch.lastNotifiedAt = now;
     if (args.messageId) {
       patch.lastMessageId = args.messageId;
-      if (!link.originalMessageId) {
+      if (args.replaceOriginal) {
+        patch.originalMessageId = args.messageId;
+      } else if (!link.originalMessageId) {
         patch.originalMessageId = link.lastMessageId ?? args.messageId;
       }
     }
     await ctx.db.patch(args.linkId, patch);
+  },
+});
+
+export const recordDiscordScheduleMessage = internalMutation({
+  args: {
+    linkId: v.optional(v.id("scheduleDiscordLinks")),
+    scheduleId: v.id("schedules"),
+    channelId: v.string(),
+    messageId: v.string(),
+    source: v.union(v.literal("channel-link"), v.literal("slash-command")),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("discordScheduleMessages")
+      .withIndex("by_channelId_and_messageId", (q) =>
+        q.eq("channelId", args.channelId).eq("messageId", args.messageId),
+      )
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        linkId: args.linkId,
+        scheduleId: args.scheduleId,
+        source: args.source,
+      });
+      return;
+    }
+    await ctx.db.insert("discordScheduleMessages", {
+      ...args,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const listDiscordMessagesForLink = internalQuery({
+  args: { linkId: v.id("scheduleDiscordLinks") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("discordScheduleMessages")
+      .withIndex("by_linkId", (q) => q.eq("linkId", args.linkId))
+      .take(50);
+  },
+});
+
+export const deleteDiscordScheduleMessageRecord = internalMutation({
+  args: { messageRecordId: v.id("discordScheduleMessages") },
+  handler: async (ctx, args) => {
+    const record = await ctx.db.get(args.messageRecordId);
+    if (record) await ctx.db.delete(record._id);
   },
 });
 
@@ -750,17 +860,39 @@ async function demotePreviousDiscordMessage(
 async function sendSummaryFor(
   ctx: ActionCtx,
   linkId: Id<"scheduleDiscordLinks">,
-  options: { onlyIfChanged: boolean; messageNonce: string },
+  options: {
+    onlyIfChanged: boolean;
+    messageNonce: string;
+    deliveryKind: "initial" | "schedule-change" | "projection-refresh";
+  },
 ): Promise<boolean> {
   const link = await ctx.runQuery(internal.discord.getLink, { linkId });
   if (!link) return false;
 
   const input = await ctx.runQuery(internal.discord.buildSummaryInput, {
     scheduleId: link.scheduleId,
+    referenceTimeMs: Date.now(),
   });
   if (!input) return false;
+  if (
+    options.deliveryKind === "projection-refresh" &&
+    input.schedule.type !== "recurring"
+  ) {
+    return true;
+  }
 
   const snapshot = buildLockedSlotSnapshot(input);
+  const projectionSnapshot = buildDiscordProjectionSnapshot(input);
+  const dstChangeNotificationsEnabled =
+    link.dstChangeNotifications === true;
+  const dstNotice = dstChangeNotificationsEnabled
+    ? buildDiscordDstNotice(input, link.lastProjectionSnapshotJson)
+    : null;
+  const dstNotificationKey = dstNotice?.key ?? null;
+  const newDstNotification =
+    dstChangeNotificationsEnabled &&
+    dstNotice !== null &&
+    dstNotice.key !== link.lastDstNotificationKey;
   let pinnedMessage = await findPinnedScheduleMessage(
     link.channelId,
     link.scheduleId,
@@ -770,20 +902,27 @@ async function sendSummaryFor(
     pinnedMessage !== null && pinnedMessage.id !== link.lastMessageId;
   if (
     options.onlyIfChanged &&
-    snapshot === link.lastSnapshotJson &&
+    (options.deliveryKind === "projection-refresh"
+      ? projectionSnapshot === link.lastProjectionSnapshotJson &&
+        dstNotificationKey === (link.lastDstNotificationKey ?? null)
+      : snapshot === link.lastSnapshotJson) &&
     !pinnedTargetChanged
   ) {
     await ctx.runMutation(internal.discord.updateLinkSnapshot, {
       linkId,
       snapshotJson: snapshot,
+      projectionSnapshotJson: projectionSnapshot,
+      dstNotificationKey,
       notified: false,
     });
     return true;
   }
 
-  const payload = buildSummaryMessage(input, "will-update");
+  const payload = buildSummaryMessage(input, "will-update", dstNotice);
   const previousMessageId = link.lastMessageId;
   let messageId: string | undefined;
+  let forcedDstPost = false;
+  let postedNewMessage = false;
   const newMessageAfterMs =
     link.newMessageAfterMs ?? getDiscordNewMessageAfterMs();
 
@@ -798,7 +937,11 @@ async function sendSummaryFor(
   }
 
   if (!messageId) {
-    if (newMessageAfterMs === DISCORD_NEVER_START_NEW_MESSAGE) {
+    if (newDstNotification) {
+      // DST notifications explicitly roll forward to a fresh message. Pinned
+      // targets above remain authoritative, as required by the pin override.
+      forcedDstPost = true;
+    } else if (newMessageAfterMs === DISCORD_NEVER_START_NEW_MESSAGE) {
       const originalMessageId =
         link.originalMessageId ?? link.lastMessageId;
       if (originalMessageId) {
@@ -813,6 +956,15 @@ async function sendSummaryFor(
           );
         }
         messageId = originalMessageId;
+      }
+    } else if (options.deliveryKind === "projection-refresh") {
+      if (link.lastMessageId) {
+        const ok = await editChannelMessage(
+          link.channelId,
+          link.lastMessageId,
+          payload,
+        );
+        if (ok) messageId = link.lastMessageId;
       }
     } else {
       const startNewMessage = shouldPostNewDiscordMessage(
@@ -840,13 +992,26 @@ async function sendSummaryFor(
       options.messageNonce,
     );
     messageId = res.id;
+    postedNewMessage = true;
+    await ctx.runMutation(internal.discord.recordDiscordScheduleMessage, {
+      linkId,
+      scheduleId: link.scheduleId,
+      channelId: link.channelId,
+      messageId,
+      source: "channel-link",
+    });
   }
 
   await ctx.runMutation(internal.discord.updateLinkSnapshot, {
     linkId,
     snapshotJson: snapshot,
+    projectionSnapshotJson: projectionSnapshot,
+    dstNotificationKey,
     messageId,
-    notified: true,
+    notified: postedNewMessage,
+    replaceOriginal:
+      forcedDstPost &&
+      newMessageAfterMs === DISCORD_NEVER_START_NEW_MESSAGE,
   });
   await demotePreviousDiscordMessage(
     ctx,
@@ -950,6 +1115,7 @@ export const linkScheduleToChannel = action({
       const sent = await sendSummaryFor(ctx, createdLink.linkId, {
         onlyIfChanged: false,
         messageNonce,
+        deliveryKind: "initial",
       });
       if (!sent) throw new Error("Discord link disappeared before initial send");
     } catch (error) {
@@ -1017,6 +1183,7 @@ export const sendDebouncedUpdate = internalAction({
       await sendSummaryFor(ctx, args.linkId, {
         onlyIfChanged: true,
         messageNonce: deliveryNonce,
+        deliveryKind: "schedule-change",
       });
     } catch (error) {
       if (
@@ -1056,6 +1223,168 @@ export const sendDebouncedUpdate = internalAction({
   },
 });
 
+export const cleanupUnlinkedDiscordMessages = internalAction({
+  args: {
+    linkId: v.id("scheduleDiscordLinks"),
+    channelId: v.string(),
+    legacyOriginalMessageId: v.optional(v.string()),
+    retryAttempt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      if (args.legacyOriginalMessageId) {
+        await deleteChannelMessage(
+          args.channelId,
+          args.legacyOriginalMessageId,
+        );
+      }
+
+      const records = await ctx.runQuery(
+        internal.discord.listDiscordMessagesForLink,
+        { linkId: args.linkId },
+      );
+      for (const record of records) {
+        if (record.source === "channel-link") {
+          await deleteChannelMessage(record.channelId, record.messageId);
+        }
+        // /when messages are deliberately preserved; their provenance record
+        // no longer needs to remain attached to a deleted channel link.
+        await ctx.runMutation(
+          internal.discord.deleteDiscordScheduleMessageRecord,
+          { messageRecordId: record._id },
+        );
+      }
+
+      if (records.length === 50) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.discord.cleanupUnlinkedDiscordMessages,
+          {
+            linkId: args.linkId,
+            channelId: args.channelId,
+            retryAttempt: 0,
+          },
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof DiscordApiError &&
+        args.retryAttempt < MAX_DISCORD_DELIVERY_RETRIES
+      ) {
+        const retryDelayMs = getDiscordRetryDelayMs(error, args.retryAttempt);
+        if (retryDelayMs !== null) {
+          await ctx.scheduler.runAfter(
+            retryDelayMs,
+            internal.discord.cleanupUnlinkedDiscordMessages,
+            {
+              ...args,
+              retryAttempt: args.retryAttempt + 1,
+            },
+          );
+          return;
+        }
+      }
+      console.error("Discord unlink message cleanup failed permanently", {
+        linkId: args.linkId,
+        channelId: args.channelId,
+        retryAttempt: args.retryAttempt,
+        error: discordDeliveryErrorMessage(error),
+      });
+    }
+  },
+});
+
+export const listDiscordLinksForProjectionRefresh = internalQuery({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("scheduleDiscordLinks")
+      .order("asc")
+      .paginate(args.paginationOpts);
+  },
+});
+
+export const refreshRecurringDiscordLink = internalAction({
+  args: {
+    linkId: v.id("scheduleDiscordLinks"),
+    retryAttempt: v.optional(v.number()),
+    deliveryNonce: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const retryAttempt = args.retryAttempt ?? 0;
+    const deliveryNonce = args.deliveryNonce ?? createDiscordMessageNonce();
+    try {
+      await sendSummaryFor(ctx, args.linkId, {
+        onlyIfChanged: true,
+        messageNonce: deliveryNonce,
+        deliveryKind: "projection-refresh",
+      });
+    } catch (error) {
+      if (
+        error instanceof DiscordApiError &&
+        retryAttempt < MAX_DISCORD_DELIVERY_RETRIES
+      ) {
+        const retryDelayMs = getDiscordRetryDelayMs(error, retryAttempt);
+        if (retryDelayMs !== null) {
+          await ctx.scheduler.runAfter(
+            retryDelayMs,
+            internal.discord.refreshRecurringDiscordLink,
+            {
+              linkId: args.linkId,
+              retryAttempt: retryAttempt + 1,
+              deliveryNonce,
+            },
+          );
+          return;
+        }
+      }
+      const message = discordDeliveryErrorMessage(error);
+      console.error("Discord recurring timestamp refresh failed", {
+        linkId: args.linkId,
+        retryAttempt,
+        message,
+      });
+      await ctx.runMutation(internal.discord.recordLinkUpdateFailure, {
+        linkId: args.linkId,
+        error: message.slice(0, 500),
+      });
+    }
+  },
+});
+
+export const refreshRecurringDiscordMessages = internalAction({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const page: {
+      page: Doc<"scheduleDiscordLinks">[];
+      isDone: boolean;
+      continueCursor: string;
+    } = await ctx.runQuery(
+      internal.discord.listDiscordLinksForProjectionRefresh,
+      {
+        paginationOpts: {
+          numItems: 25,
+          cursor: args.cursor ?? null,
+        },
+      },
+    );
+    for (const link of page.page) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.discord.refreshRecurringDiscordLink,
+        { linkId: link._id },
+      );
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.discord.refreshRecurringDiscordMessages,
+        { cursor: page.continueCursor },
+      );
+    }
+  },
+});
+
 export const retryDemoteDiscordMessage = internalAction({
   args: {
     scheduleId: v.id("schedules"),
@@ -1066,6 +1395,7 @@ export const retryDemoteDiscordMessage = internalAction({
   handler: async (ctx, args) => {
     const input = await ctx.runQuery(internal.discord.buildSummaryInput, {
       scheduleId: args.scheduleId,
+      referenceTimeMs: Date.now(),
     });
     if (!input) return;
 
@@ -1470,6 +1800,7 @@ export const shareInteractionSummary = internalAction({
 
       const input = await ctx.runQuery(internal.discord.buildSummaryInput, {
         scheduleId: args.scheduleId,
+        referenceTimeMs: Date.now(),
       });
       if (!input) return await finish({ ok: false, reason: "not_found" });
 
@@ -1477,11 +1808,26 @@ export const shareInteractionSummary = internalAction({
         internal.discord.getLinkForScheduleChannel,
         { scheduleId: args.scheduleId, channelId: args.channelId },
       );
-      if (!link) {
+      const postSlashCommandMessage = async (
+        payload: Record<string, unknown>,
+      ): Promise<{ id: string }> => {
         const posted = await postChannelMessage(
           args.channelId,
-          buildSummaryMessage(input, "one-time"),
+          payload,
           args.messageNonce,
+        );
+        await ctx.runMutation(internal.discord.recordDiscordScheduleMessage, {
+          linkId: link?._id,
+          scheduleId: args.scheduleId,
+          channelId: args.channelId,
+          messageId: posted.id,
+          source: "slash-command",
+        });
+        return posted;
+      };
+      if (!link) {
+        const posted = await postSlashCommandMessage(
+          buildSummaryMessage(input, "one-time"),
         );
         return await finish({
           ok: true,
@@ -1491,6 +1837,13 @@ export const shareInteractionSummary = internalAction({
       }
 
       const snapshot = buildLockedSlotSnapshot(input);
+      const projectionSnapshot = buildDiscordProjectionSnapshot(input);
+      const dstChangeNotificationsEnabled =
+        link.dstChangeNotifications === true;
+      const dstNotice = dstChangeNotificationsEnabled
+        ? buildDiscordDstNotice(input, link.lastProjectionSnapshotJson)
+        : null;
+      const dstNotificationKey = dstNotice?.key ?? null;
       const pinnedMessage = await findPinnedScheduleMessage(
         link.channelId,
         link.scheduleId,
@@ -1500,14 +1853,16 @@ export const shareInteractionSummary = internalAction({
         const updated = await editChannelMessage(
           link.channelId,
           pinnedMessage.id,
-          buildSummaryMessage(input, "will-update"),
+          buildSummaryMessage(input, "will-update", dstNotice),
         );
         if (updated) {
           await ctx.runMutation(internal.discord.updateLinkSnapshot, {
             linkId: link._id,
             snapshotJson: snapshot,
+            projectionSnapshotJson: projectionSnapshot,
+            dstNotificationKey,
             messageId: pinnedMessage.id,
-            notified: true,
+            notified: false,
           });
           await demotePreviousDiscordMessage(
             ctx,
@@ -1517,10 +1872,8 @@ export const shareInteractionSummary = internalAction({
             pinnedMessage.id,
             input,
           );
-          const posted = await postChannelMessage(
-            args.channelId,
-            buildSummaryMessage(input, "one-time"),
-            args.messageNonce,
+          const posted = await postSlashCommandMessage(
+            buildSummaryMessage(input, "one-time", dstNotice),
           );
           return await finish({
             ok: true,
@@ -1533,14 +1886,14 @@ export const shareInteractionSummary = internalAction({
       const newMessageAfterMs =
         link.newMessageAfterMs ?? getDiscordNewMessageAfterMs();
       if (newMessageAfterMs > 0) {
-        const posted = await postChannelMessage(
-          args.channelId,
-          buildSummaryMessage(input, "will-update"),
-          args.messageNonce,
+        const posted = await postSlashCommandMessage(
+          buildSummaryMessage(input, "will-update", dstNotice),
         );
         await ctx.runMutation(internal.discord.updateLinkSnapshot, {
           linkId: link._id,
           snapshotJson: snapshot,
+          projectionSnapshotJson: projectionSnapshot,
+          dstNotificationKey,
           messageId: posted.id,
           notified: true,
         });
@@ -1559,10 +1912,8 @@ export const shareInteractionSummary = internalAction({
         });
       }
 
-      const posted = await postChannelMessage(
-        args.channelId,
-        buildSummaryMessage(input, "one-time"),
-        args.messageNonce,
+      const posted = await postSlashCommandMessage(
+        buildSummaryMessage(input, "one-time", dstNotice),
       );
       return await finish({
         ok: true,

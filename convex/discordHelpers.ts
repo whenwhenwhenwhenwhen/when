@@ -456,6 +456,34 @@ export async function editChannelMessage(
   }
 }
 
+export async function deleteChannelMessage(
+  channelId: string,
+  messageId: string,
+): Promise<void> {
+  try {
+    await discordRequest(
+      "deleteChannelMessage",
+      `DELETE:/channels/${channelId}/messages/:message`,
+      `channel:${channelId}`,
+      `${DISCORD_API}/channels/${channelId}/messages/${messageId}`,
+      {
+        method: "DELETE",
+        headers: authHeader(),
+      },
+    );
+  } catch (error) {
+    // Deleting an already-removed message has achieved the desired outcome.
+    if (
+      error instanceof DiscordApiError &&
+      error.status === 404 &&
+      error.code === 10008
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
 export type DiscordChannelMessage = {
   id: string;
   pinned?: boolean;
@@ -716,6 +744,7 @@ export type SummaryInput = {
     description?: string;
     type: "one-off" | "recurring";
     creatorTimezone: string;
+    recurringStartDate?: string;
     lockedSlots?: { dayKey: string; timeSlot: string }[];
     isLocked?: boolean;
   };
@@ -732,21 +761,28 @@ export type SummaryInput = {
     exceptionDate?: string;
   }[];
   referenceDate?: string;
+  referenceTimeMs?: number;
   // Where to point the View Schedule button
   appBaseUrl: string;
 };
 
 export type DiscordSummaryLabel = "will-update" | "one-time";
 
-const DAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
+export type DiscordDstNotice = {
+  key: string;
+  scheduleShift?: {
+    timezone: string;
+    transitionUnix: number;
+    offsetChangeMinutes: number;
+  };
+  participantShifts: Array<{
+    name: string;
+    timezone: string;
+    transitionUnix: number;
+    offsetChangeMinutes: number;
+  }>;
+  noLongerAvailable: string[];
+};
 
 const EMBED_TITLE_LIMIT = 256;
 const EMBED_DESCRIPTION_LIMIT = 4096;
@@ -806,37 +842,303 @@ function trimEmbedToDiscordLimits(embed: Record<string, unknown>): Record<string
   };
 }
 
-function formatSlotLabel(
-  scheduleType: "one-off" | "recurring",
-  dayKey: string,
-  timeSlot: string
-): string {
-  if (scheduleType === "recurring") {
-    const dow = parseInt(dayKey, 10);
-    const name = DAY_NAMES[dow] ?? `Day ${dayKey}`;
-    return `${name} ${timeSlot}`;
+const SLOT_MINUTES = 30;
+
+function inputReferenceDateTime(input: SummaryInput): DateTime {
+  let reference: DateTime;
+  if (input.referenceTimeMs !== undefined) {
+    reference = DateTime.fromMillis(input.referenceTimeMs, {
+      zone: input.schedule.creatorTimezone,
+    });
+  } else if (input.referenceDate) {
+    reference = DateTime.fromISO(input.referenceDate, {
+      zone: input.schedule.creatorTimezone,
+    }).startOf("day");
+  } else {
+    reference = DateTime.now().setZone(input.schedule.creatorTimezone);
   }
-  const dt = DateTime.fromISO(dayKey);
-  return `${dt.toFormat("EEE MMM d")} ${timeSlot}`;
+  if (
+    input.schedule.type === "recurring" &&
+    input.schedule.recurringStartDate
+  ) {
+    const start = DateTime.fromISO(input.schedule.recurringStartDate, {
+      zone: input.schedule.creatorTimezone,
+    }).startOf("day");
+    if (start.isValid && start.toMillis() > reference.toMillis()) return start;
+  }
+  return reference;
+}
+
+function jsDayOfWeek(value: DateTime): number {
+  return value.weekday === 7 ? 0 : value.weekday;
+}
+
+function resolveUpcomingCellStart(
+  input: SummaryInput,
+  cell: { dayKey: string; timeSlot: string },
+): DateTime {
+  const [hour, minute] = cell.timeSlot.split(":").map(Number);
+  if (input.schedule.type === "one-off") {
+    return DateTime.fromISO(cell.dayKey, {
+      zone: input.schedule.creatorTimezone,
+    }).set({ hour, minute, second: 0, millisecond: 0 });
+  }
+
+  const reference = inputReferenceDateTime(input);
+  const weekday = Number.parseInt(cell.dayKey, 10);
+  const daysAhead = (weekday - jsDayOfWeek(reference) + 7) % 7;
+  const occurrence = reference
+    .startOf("day")
+    .plus({ days: daysAhead })
+    .set({ hour, minute, second: 0, millisecond: 0 });
+  // Treat all cells on today's weekday as one occurrence, even after some of
+  // that day's cells have passed. This keeps a contiguous block intact; the
+  // six-hour refresh rolls the whole weekday forward after local midnight.
+  return occurrence;
+}
+
+type TimedCell<T> = T & { start: DateTime; end: DateTime };
+
+function groupContiguousCells<T extends { dayKey: string; timeSlot: string }>(
+  input: SummaryInput,
+  cells: T[],
+  canMerge: (previous: T, next: T) => boolean = () => true,
+): Array<{ cells: TimedCell<T>[]; start: DateTime; end: DateTime }> {
+  const timed = cells
+    .map((cell) => {
+      const start = resolveUpcomingCellStart(input, cell);
+      return { ...cell, start, end: start.plus({ minutes: SLOT_MINUTES }) };
+    })
+    .sort((a, b) => a.start.toMillis() - b.start.toMillis());
+
+  const blocks: Array<{
+    cells: TimedCell<T>[];
+    start: DateTime;
+    end: DateTime;
+  }> = [];
+  for (const cell of timed) {
+    const current = blocks.at(-1);
+    const previous = current?.cells.at(-1);
+    if (
+      current &&
+      previous &&
+      previous.end.toMillis() === cell.start.toMillis() &&
+      canMerge(previous, cell)
+    ) {
+      current.cells.push(cell);
+      current.end = cell.end;
+    } else {
+      blocks.push({ cells: [cell], start: cell.start, end: cell.end });
+    }
+  }
+  return blocks;
+}
+
+function formatDiscordTimeBlock(start: DateTime, end: DateTime): string {
+  if (!start.isValid || !end.isValid) return "Unknown time";
+  return `<t:${Math.floor(start.toSeconds())}:F>–<t:${Math.floor(end.toSeconds())}:t>`;
 }
 
 function normalizedSelections(input: SummaryInput) {
-  const referenceDate = input.referenceDate
-    ? DateTime.fromISO(input.referenceDate, {
-        zone: input.schedule.creatorTimezone,
-      })
-    : DateTime.now().setZone(input.schedule.creatorTimezone);
+  const referenceDate = inputReferenceDateTime(input);
 
-  return input.selections.map((selection) => ({
-    ...selection,
-    ...convertCellToTimezone(
-      input.schedule.type,
-      selection,
-      selection.timezone,
-      input.schedule.creatorTimezone,
-      referenceDate
-    ),
-  }));
+  return input.selections.map((selection) => {
+    if (input.schedule.type === "recurring" && !selection.isException) {
+      const participantReference = referenceDate.setZone(selection.timezone);
+      const participantWeekday = Number.parseInt(selection.dayKey, 10);
+      const daysAhead =
+        (participantWeekday - jsDayOfWeek(participantReference) + 7) % 7;
+      const [hour, minute] = selection.timeSlot.split(":").map(Number);
+      const converted = participantReference
+        .startOf("day")
+        .plus({ days: daysAhead })
+        .set({ hour, minute, second: 0, millisecond: 0 })
+        .setZone(input.schedule.creatorTimezone);
+      return {
+        ...selection,
+        dayKey: String(jsDayOfWeek(converted)),
+        timeSlot: converted.toFormat("HH:mm"),
+      };
+    }
+
+    return {
+      ...selection,
+      ...convertCellToTimezone(
+        input.schedule.type,
+        selection,
+        selection.timezone,
+        input.schedule.creatorTimezone,
+        referenceDate,
+      ),
+    };
+  });
+}
+
+type LockedProjectionSnapshot = {
+  occurrences: Record<string, number>;
+  availability: Record<string, Record<string, SelectionState>>;
+};
+
+function buildLockedProjection(input: SummaryInput): LockedProjectionSnapshot {
+  const normalized = normalizedSelections(input);
+  const occurrences: LockedProjectionSnapshot["occurrences"] = {};
+  const availability: LockedProjectionSnapshot["availability"] = {};
+
+  for (const slot of input.schedule.lockedSlots ?? []) {
+    const key = `${slot.dayKey}|${slot.timeSlot}`;
+    occurrences[key] = Math.floor(resolveUpcomingCellStart(input, slot).toSeconds());
+    const participants: Record<string, SelectionState> = {};
+    for (const selection of normalized) {
+      if (
+        selection.isException ||
+        selection.dayKey !== slot.dayKey ||
+        selection.timeSlot !== slot.timeSlot
+      ) {
+        continue;
+      }
+      participants[selection.profileId] = selection.state;
+    }
+    availability[key] = participants;
+  }
+  for (const selection of normalized) {
+    if (selection.isException || selection.state === "cant-do") continue;
+    const key = `nomination:${selection.dayKey}|${selection.timeSlot}`;
+    if (occurrences[key] === undefined) {
+      occurrences[key] = Math.floor(
+        resolveUpcomingCellStart(input, selection).toSeconds(),
+      );
+    }
+  }
+  return { occurrences, availability };
+}
+
+export function buildDiscordProjectionSnapshot(input: SummaryInput): string {
+  return JSON.stringify(buildLockedProjection(input));
+}
+
+function parseProjectionSnapshot(
+  snapshot: string | undefined,
+): LockedProjectionSnapshot | null {
+  if (!snapshot) return null;
+  try {
+    const parsed = JSON.parse(snapshot) as Partial<LockedProjectionSnapshot>;
+    if (!parsed.occurrences || !parsed.availability) return null;
+    return parsed as LockedProjectionSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function findNextOffsetTransition(
+  timezone: string,
+  fromMs: number,
+): { transitionUnix: number; offsetChangeMinutes: number } | null {
+  const start = DateTime.fromMillis(fromMs, { zone: timezone });
+  if (!start.isValid) return null;
+  const initialOffset = start.offset;
+  let previous = start;
+  for (let hours = 6; hours <= 8 * 24; hours += 6) {
+    const candidate = start.plus({ hours });
+    if (candidate.offset === initialOffset) {
+      previous = candidate;
+      continue;
+    }
+
+    let low = previous.toMillis();
+    let high = candidate.toMillis();
+    while (high - low > 60_000) {
+      const midpoint = Math.floor((low + high) / 2);
+      if (DateTime.fromMillis(midpoint, { zone: timezone }).offset === initialOffset) {
+        low = midpoint;
+      } else {
+        high = midpoint;
+      }
+    }
+    const nextOffset = DateTime.fromMillis(high, { zone: timezone }).offset;
+    return {
+      transitionUnix: Math.floor(high / 1000),
+      offsetChangeMinutes: nextOffset - initialOffset,
+    };
+  }
+  return null;
+}
+
+export function buildDiscordDstNotice(
+  input: SummaryInput,
+  previousProjectionSnapshot?: string,
+): DiscordDstNotice | null {
+  if (input.schedule.type !== "recurring") return null;
+  const referenceMs = inputReferenceDateTime(input).toMillis();
+  const participantZones = new Map<string, string>();
+  for (const selection of input.selections) {
+    if (!selection.isException && !participantZones.has(selection.profileId)) {
+      participantZones.set(selection.profileId, selection.timezone);
+    }
+  }
+
+  const participantShiftEntries = [...participantZones.entries()]
+    .map(([profileId, timezone]) => {
+      const transition = findNextOffsetTransition(timezone, referenceMs);
+      return transition
+        ? {
+            profileId,
+            name: input.profileNames[profileId] ?? "?",
+            timezone,
+            ...transition,
+          }
+        : null;
+    })
+    .filter((shift): shift is NonNullable<typeof shift> => shift !== null)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const creatorTransition = findNextOffsetTransition(
+    input.schedule.creatorTimezone,
+    referenceMs,
+  );
+  if (participantShiftEntries.length === 0 && !creatorTransition) return null;
+
+  const affectedProfileIds = creatorTransition
+    ? new Set(participantZones.keys())
+    : new Set(participantShiftEntries.map((shift) => shift.profileId));
+
+  const previous = parseProjectionSnapshot(previousProjectionSnapshot);
+  const current = buildLockedProjection(input);
+  const unavailableProfileIds = new Set<string>();
+  if (previous) {
+    for (const [slotKey, priorParticipants] of Object.entries(
+      previous.availability,
+    )) {
+      const nextParticipants = current.availability[slotKey] ?? {};
+      for (const [profileId, previousState] of Object.entries(
+        priorParticipants,
+      )) {
+        if (!affectedProfileIds.has(profileId)) continue;
+        if (previousState !== "can-do" && previousState !== "maybe") continue;
+        const nextState = nextParticipants[profileId];
+        if (nextState !== "can-do" && nextState !== "maybe") {
+          unavailableProfileIds.add(profileId);
+        }
+      }
+    }
+  }
+
+  const noLongerAvailable = [...unavailableProfileIds]
+    .map((profileId) => input.profileNames[profileId] ?? "?")
+    .sort((a, b) => a.localeCompare(b));
+  const scheduleShift = creatorTransition
+    ? { timezone: input.schedule.creatorTimezone, ...creatorTransition }
+    : undefined;
+  const participantShifts = participantShiftEntries.map(
+    ({ profileId: _profileId, ...shift }) => shift,
+  );
+  const key = JSON.stringify({
+    scheduleShift,
+    participantShifts: participantShifts.map((shift) => ({
+      timezone: shift.timezone,
+      transitionUnix: shift.transitionUnix,
+      offsetChangeMinutes: shift.offsetChangeMinutes,
+    })),
+  });
+  return { key, scheduleShift, participantShifts, noLongerAvailable };
 }
 
 /** Build a snapshot string used to detect "did anything meaningful change" */
@@ -875,6 +1177,7 @@ export function buildLockedSlotSnapshot(input: SummaryInput): string {
 export function buildSummaryMessage(
   input: SummaryInput,
   label: DiscordSummaryLabel,
+  dstNotice?: DiscordDstNotice | null,
 ): Record<string, unknown> {
   const { schedule, profileNames } = input;
   const lockedSlots = schedule.lockedSlots ?? [];
@@ -885,31 +1188,58 @@ export function buildSummaryMessage(
   if (lockedSlots.length === 0) {
     lockedField = "_No locked-in times yet._";
   } else {
-    const lockedLines = lockedSlots
-      .slice()
-      .sort((a, b) =>
-        (a.dayKey + a.timeSlot).localeCompare(b.dayKey + b.timeSlot)
-      )
-      .map((slot) => {
-        const label = formatSlotLabel(schedule.type, slot.dayKey, slot.timeSlot);
-        // Show who can / can't make this slot
+    const lockedLines = groupContiguousCells(input, lockedSlots).map((block) => {
+        const timeLabel = formatDiscordTimeBlock(block.start, block.end);
+        // Summarise availability across the complete contiguous block. A
+        // participant is listed as available only when every cell is covered.
+        const statesByProfile = new Map<string, SelectionState[]>();
+        for (const cell of block.cells) {
+          const cellStates = new Map<string, SelectionState>();
+          for (const selection of normalized) {
+            if (
+              !selection.isException &&
+              selection.dayKey === cell.dayKey &&
+              selection.timeSlot === cell.timeSlot
+            ) {
+              cellStates.set(selection.profileId, selection.state);
+            }
+          }
+          const profileIds = new Set([
+            ...statesByProfile.keys(),
+            ...cellStates.keys(),
+          ]);
+          for (const profileId of profileIds) {
+            const states = statesByProfile.get(profileId) ?? [];
+            const state = cellStates.get(profileId);
+            if (state) states.push(state);
+            statesByProfile.set(profileId, states);
+          }
+        }
+
         const canDo: string[] = [];
         const cantDo: string[] = [];
         const maybe: string[] = [];
-        for (const s of normalized) {
-          if (s.isException) continue;
-          if (s.dayKey !== slot.dayKey || s.timeSlot !== slot.timeSlot) continue;
-          const name = profileNames[s.profileId] ?? "?";
-          if (s.state === "can-do") canDo.push(name);
-          else if (s.state === "cant-do") cantDo.push(name);
-          else maybe.push(name);
+        for (const [profileId, states] of statesByProfile) {
+          const name = profileNames[profileId] ?? "?";
+          if (states.includes("cant-do")) cantDo.push(name);
+          else if (
+            states.length === block.cells.length &&
+            states.every((state) => state === "can-do")
+          ) {
+            canDo.push(name);
+          } else if (
+            states.length === block.cells.length &&
+            states.every((state) => state === "can-do" || state === "maybe")
+          ) {
+            maybe.push(name);
+          }
         }
         const parts: string[] = [];
-        if (canDo.length) parts.push(`✅ ${canDo.join(", ")}`);
-        if (maybe.length) parts.push(`❔ ${maybe.join(", ")}`);
-        if (cantDo.length) parts.push(`❌ ${cantDo.join(", ")}`);
+        if (canDo.length) parts.push(`✅ ${canDo.sort().join(", ")}`);
+        if (maybe.length) parts.push(`❔ ${maybe.sort().join(", ")}`);
+        if (cantDo.length) parts.push(`❌ ${cantDo.sort().join(", ")}`);
         const detail = parts.length ? `\n  ${parts.join(" · ")}` : "";
-        return `🔒 **${label}**${detail}`;
+        return `🔒 **${timeLabel}**${detail}`;
       });
     lockedField = lockedLines.join("\n\n");
   }
@@ -931,24 +1261,73 @@ export function buildSummaryMessage(
     else if (s.state === "maybe") entry.maybe.push(name);
     tally.set(key, entry);
   }
-  const sortedTally = [...tally.values()]
+  const tallyEntries = [...tally.values()]
     .map((e) => ({ ...e, score: e.canDo.length * 2 + e.maybe.length }))
-    .sort((a, b) => b.score - a.score || (a.dayKey + a.timeSlot).localeCompare(b.dayKey + b.timeSlot))
+    .map((entry) => ({
+      ...entry,
+      signature: JSON.stringify({
+        canDo: [...entry.canDo].sort(),
+        maybe: [...entry.maybe].sort(),
+      }),
+    }));
+  const nominationBlocks = groupContiguousCells(
+    input,
+    tallyEntries,
+    (previous, next) => previous.signature === next.signature,
+  )
+    .map((block) => ({
+      ...block,
+      score: block.cells[0]?.score ?? 0,
+      canDo: block.cells[0]?.canDo ?? [],
+      maybe: block.cells[0]?.maybe ?? [],
+    }))
+    .sort(
+      (a, b) =>
+        b.score - a.score || a.start.toMillis() - b.start.toMillis(),
+    )
     .slice(0, 5);
 
   let nominationsField = "";
-  if (sortedTally.length === 0) {
+  if (nominationBlocks.length === 0) {
     nominationsField = "_No nominations yet._";
   } else {
-    nominationsField = sortedTally
-      .map((e) => {
-        const label = formatSlotLabel(schedule.type, e.dayKey, e.timeSlot);
+    nominationsField = nominationBlocks
+      .map((block) => {
+        const timeLabel = formatDiscordTimeBlock(block.start, block.end);
         const parts: string[] = [];
-        if (e.canDo.length) parts.push(`✅ ${e.canDo.join(", ")}`);
-        if (e.maybe.length) parts.push(`❔ ${e.maybe.join(", ")}`);
-        return `**${label}** — ${parts.join(" · ")}`;
+        if (block.canDo.length) parts.push(`✅ ${block.canDo.sort().join(", ")}`);
+        if (block.maybe.length) parts.push(`❔ ${block.maybe.sort().join(", ")}`);
+        return `**${timeLabel}** — ${parts.join(" · ")}`;
       })
       .join("\n");
+  }
+
+  let dstField: { name: string; value: string; inline: boolean } | undefined;
+  if (dstNotice) {
+    const lines: string[] = [];
+    if (dstNotice.scheduleShift) {
+      const direction =
+        dstNotice.scheduleShift.offsetChangeMinutes > 0 ? "forward" : "back";
+      lines.push(
+        `🕒 Schedule timezone (${dstNotice.scheduleShift.timezone}) moves ${direction} <t:${dstNotice.scheduleShift.transitionUnix}:R>.`,
+      );
+    }
+    for (const shift of dstNotice.participantShifts) {
+      const direction = shift.offsetChangeMinutes > 0 ? "forward" : "back";
+      lines.push(
+        `🕒 ${shift.name} (${shift.timezone}) moves ${direction} <t:${shift.transitionUnix}:R>.`,
+      );
+    }
+    lines.push(
+      dstNotice.noLongerAvailable.length > 0
+        ? `⚠️ No longer available for at least one locked-in block: ${dstNotice.noLongerAvailable.join(", ")}.`
+        : "✅ No participants have fallen out of the locked-in blocks.",
+    );
+    dstField = {
+      name: "Upcoming DST change",
+      value: lines.join("\n"),
+      inline: false,
+    };
   }
 
   const url = `${input.appBaseUrl}/schedule/${schedule._id}`;
@@ -961,9 +1340,10 @@ export function buildSummaryMessage(
     fields: [
       { name: "Locked-in times", value: lockedField || "—", inline: false },
       { name: "Top nominations", value: nominationsField || "—", inline: false },
+      ...(dstField ? [dstField] : []),
     ],
     footer: {
-      text: `${label === "will-update" ? "Will update." : "One time message."} · Schedule type: ${schedule.type} · Times: ${schedule.creatorTimezone}`,
+      text: `${label === "will-update" ? "Will update." : "One time message."} · Schedule type: ${schedule.type} · Times display in your Discord timezone`,
     },
     timestamp: new Date().toISOString(),
   });

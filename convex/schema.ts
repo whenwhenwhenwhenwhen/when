@@ -282,9 +282,32 @@ export default defineSchema({
     // -1 always edits the original message; zero edits the latest target;
     // positive values permit age-based rollover to a new latest target.
     newMessageAfterMs: v.optional(v.number()),
+    // New links default this to true. When enabled, an upcoming participant/
+    // schedule DST transition forces a fresh channel message even when the
+    // normal age policy would edit.
+    dstChangeNotifications: v.optional(v.boolean()),
+    // Recurring occurrence/availability projection used by the daily refresh
+    // to detect weekday rollovers and DST-driven participation changes.
+    lastProjectionSnapshotJson: v.optional(v.string()),
+    lastDstNotificationKey: v.optional(v.string()),
   })
     .index("by_schedule", ["scheduleId"])
     .index("by_channel", ["channelId"]),
+
+  // Tracks message provenance independently of the current update target.
+  // This lets unlink cleanup remove all channel-link lifecycle messages while
+  // preserving messages that were explicitly inserted through /when.
+  discordScheduleMessages: defineTable({
+    linkId: v.optional(v.id("scheduleDiscordLinks")),
+    scheduleId: v.id("schedules"),
+    channelId: v.string(),
+    messageId: v.string(),
+    source: v.union(v.literal("channel-link"), v.literal("slash-command")),
+    createdAt: v.number(),
+  })
+    .index("by_linkId", ["linkId"])
+    .index("by_channelId_and_messageId", ["channelId", "messageId"])
+    .index("by_scheduleId_and_channelId", ["scheduleId", "channelId"]),
 
   // Maps a Discord user to a When profile (so /when can show "your" schedules)
   discordUserLinks: defineTable({

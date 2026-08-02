@@ -357,4 +357,67 @@ describe("WeeklyGrid participant timezone editing", () => {
     expect(onBatchChange).not.toHaveBeenCalled();
     expect(onCreatorSlotChange).not.toHaveBeenCalled();
   });
+
+  it("keeps profile icons ordered by profile ID when selection order changes", () => {
+    const alphaId = "profile-alpha" as Id<"userProfiles">;
+    const zuluId = "profile-zulu" as Id<"userProfiles">;
+    const profiles = [
+      {
+        _id: zuluId,
+        displayName: "Zulu",
+        profileImageUrl: "https://example.com/zulu.png",
+        timezone: "Australia/Melbourne",
+      },
+      {
+        _id: alphaId,
+        displayName: "Alpha",
+        profileImageUrl: "https://example.com/alpha.png",
+        timezone: "Australia/Melbourne",
+      },
+    ];
+    const makeSelection = (profileId: Id<"userProfiles">) => ({
+      _id: `selection-${profileId}`,
+      scheduleId: "schedule",
+      profileId,
+      dayKey: "1",
+      timeSlot: "09:00",
+      timezone: "Australia/Melbourne",
+      state: "can-do" as const,
+    });
+    const renderGrid = (selectionOrder: Id<"userProfiles">[]) => (
+      <WeeklyGrid
+        schedule={{
+          _id: "schedule" as Id<"schedules">,
+          title: "Stable participant order",
+          type: "recurring",
+          creatorTimezone: "Australia/Melbourne",
+          creatorProfileId: "creator" as Id<"userProfiles">,
+          selections: selectionOrder.map(makeSelection),
+          profiles,
+        }}
+        profileId={null}
+        userTimezone="Australia/Melbourne"
+        selectionTimezone="Australia/Melbourne"
+        weekStartDay={0}
+        selectMode="auto"
+        allowMode="auto"
+        weekOffset={0}
+        canInteract={false}
+        isCreator={false}
+        canLock={false}
+        creatorMode={null}
+        onCellChange={vi.fn(() => Promise.resolve())}
+        onBatchChange={vi.fn(() => Promise.resolve())}
+        onCreatorSlotChange={vi.fn(() => Promise.resolve())}
+      />
+    );
+    const getIconNames = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll("img")).map((img) => img.alt);
+
+    const { container, rerender } = render(renderGrid([zuluId, alphaId]));
+    expect(getIconNames(container)).toEqual(["Alpha", "Zulu"]);
+
+    rerender(renderGrid([alphaId, zuluId]));
+    expect(getIconNames(container)).toEqual(["Alpha", "Zulu"]);
+  });
 });

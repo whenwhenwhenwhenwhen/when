@@ -285,6 +285,10 @@ export function WeeklyGrid({
       map.set(cellKey, existing);
     }
 
+    for (const selections of map.values()) {
+      selections.sort((a, b) => a.profileId.localeCompare(b.profileId));
+    }
+
     return map;
   }, [
     schedule.selections,

@@ -10,6 +10,7 @@ import styles from "../styles/app.module.css";
 
 interface Props {
   scheduleId: Id<"schedules">;
+  scheduleType: "one-off" | "recurring";
   profileId: Id<"userProfiles"> | null;
   anonymousId?: string;
   isCreator: boolean;
@@ -48,6 +49,7 @@ function formatDuration(durationMs: number): string {
 
 export function DiscordLinkButton({
   scheduleId,
+  scheduleType,
   profileId,
   anonymousId,
   isCreator,
@@ -61,11 +63,17 @@ export function DiscordLinkButton({
   const getDeliveryDefaults = useAction(api.discord.getDeliveryDefaults);
   const unlink = useMutation(api.discord.unlink);
   const setNewMessageAfter = useMutation(api.discord.setNewMessageAfter);
+  const setDstChangeNotifications = useMutation(
+    api.discord.setDstChangeNotifications,
+  );
   const [busy, setBusy] = useState(false);
   const [defaultNewMessageAfterMs, setDefaultNewMessageAfterMs] = useState<
     number | null
   >(null);
   const [savingPolicyFor, setSavingPolicyFor] = useState<
+    Id<"scheduleDiscordLinks"> | null
+  >(null);
+  const [savingDstFor, setSavingDstFor] = useState<
     Id<"scheduleDiscordLinks"> | null
   >(null);
 
@@ -168,6 +176,26 @@ export function DiscordLinkButton({
     [anonymousId, profileId, setNewMessageAfter],
   );
 
+  const handleDstNotificationsChange = useCallback(
+    async (linkId: Id<"scheduleDiscordLinks">, enabled: boolean) => {
+      if (!profileId) return;
+      setSavingDstFor(linkId);
+      try {
+        await setDstChangeNotifications({
+          linkId,
+          enabled,
+          anonymousId,
+        });
+      } catch (error) {
+        console.error("Could not update Discord DST notifications", error);
+        alert("When? could not update this Discord channel setting.");
+      } finally {
+        setSavingDstFor(null);
+      }
+    },
+    [anonymousId, profileId, setDstChangeNotifications],
+  );
+
   const hasLinks = links && links.length > 0;
   const shouldShowLinks = showLinks && hasLinks;
   const shouldShowLinkButton = showLinkButton && isCreator;
@@ -259,30 +287,63 @@ export function DiscordLinkButton({
               )}
 
               {isCreator && (
-                <label className={styles.discordPolicyLabel}>
-                  <span>Start a new message after</span>
-                  <select
-                    value={link.newMessageAfterMs ?? "default"}
-                    onChange={(event) =>
-                      void handlePolicyChange(link._id, event.target.value)
-                    }
-                    disabled={savingPolicyFor === link._id}
-                    className={styles.selectControl}
-                    aria-label={`New-message age for #${link.channelName ?? link.channelId.slice(0, 6)}`}
-                  >
-                    <option value="default">
-                      Server default
-                      {defaultNewMessageAfterMs === null
-                        ? ""
-                        : ` (${formatDuration(defaultNewMessageAfterMs)})`}
-                    </option>
-                    {NEW_MESSAGE_AGE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
+                <>
+                  <label className={styles.discordPolicyLabel}>
+                    <span>Start a new message after</span>
+                    <select
+                      value={link.newMessageAfterMs ?? "default"}
+                      onChange={(event) =>
+                        void handlePolicyChange(link._id, event.target.value)
+                      }
+                      disabled={savingPolicyFor === link._id}
+                      className={styles.selectControl}
+                      aria-label={`New-message age for #${link.channelName ?? link.channelId.slice(0, 6)}`}
+                    >
+                      <option value="default">
+                        Server default
+                        {defaultNewMessageAfterMs === null
+                          ? ""
+                          : ` (${formatDuration(defaultNewMessageAfterMs)})`}
                       </option>
-                    ))}
-                  </select>
-                </label>
+                      {NEW_MESSAGE_AGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {scheduleType === "recurring" && (
+                  <div className={styles.scheduleOptionRow}>
+                    <span className={styles.calendarLabel}>
+                      DST change notifications
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleDstNotificationsChange(
+                          link._id,
+                          !link.dstChangeNotifications,
+                        )
+                      }
+                      disabled={savingDstFor === link._id}
+                      className={cx(
+                        styles.toggle,
+                        link.dstChangeNotifications && styles.togglePurpleOn,
+                      )}
+                      aria-label={`DST change notifications for #${link.channelName ?? link.channelId.slice(0, 6)}`}
+                      aria-pressed={link.dstChangeNotifications}
+                      title="Post a fresh localized summary when an upcoming DST change shifts participants or schedule times"
+                    >
+                      <span
+                        className={cx(
+                          styles.toggleKnob,
+                          link.dstChangeNotifications && styles.toggleKnobOn,
+                        )}
+                      />
+                    </button>
+                  </div>
+                  )}
+                </>
               )}
             </div>
           ))}

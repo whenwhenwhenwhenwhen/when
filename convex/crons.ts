@@ -24,4 +24,11 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "discord-recurring-timestamp-refresh",
+  { hours: 6 },
+  internal.discord.refreshRecurringDiscordMessages,
+  {},
+);
+
 export default crons;
