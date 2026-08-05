@@ -698,7 +698,7 @@ export function ScheduleView() {
       </div>
     );
   }
-
+//test
   const weekStartDay = profile?.weekStartDay ?? 0;
 
   // Determine navigation boundaries based on schedule type
