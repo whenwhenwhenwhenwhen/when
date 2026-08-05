@@ -38,6 +38,12 @@ updates:
       - dependency-name: typescript
         update-types:
           - version-update:semver-major
+      # @types/node majors track the Node.js major, which is pinned to the LTS
+      # line (see the docker ignore below). The types move with the runtime,
+      # not ahead of it.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
@@ -60,3 +66,11 @@ updates:
       time: "06:00"
     cooldown:
       default-days: 3
+    ignore:
+      # Node majors alternate between LTS (even) and short-lived current (odd)
+      # lines, and Dependabot cannot tell them apart. Moving base image is a
+      # deliberate choice tied to the LTS calendar, so patches and minors of the
+      # pinned line are taken automatically and majors are not.
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
