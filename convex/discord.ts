@@ -41,9 +41,18 @@ const USER_LINK_SESSION_CLEANUP_BATCH_SIZE = 100;
 const MIN_NEW_MESSAGE_AFTER_MS = 60 * 1000;
 const MAX_NEW_MESSAGE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_DISCORD_DELIVERY_RETRIES = 5;
+const MAX_DISCORD_RETRY_DELAY_MS = 15 * 60 * 1000;
 
 function getAppBaseUrl(): string {
-  return process.env.SITE_URL ?? "";
+  const siteUrl = process.env.SITE_URL;
+  // Embed URLs must be absolute: the pin override reads the schedule back out
+  // of a posted message by parsing them.
+  if (!siteUrl) {
+    throw new Error(
+      "SITE_URL must be set before When? can post schedules to Discord",
+    );
+  }
+  return siteUrl;
 }
 
 function isInstallSessionExpired(session: Doc<"discordInstallSessions">): boolean {
@@ -81,16 +90,6 @@ async function getCallerProfile(
 // Queries — used by HTTP route handlers and frontend
 // ---------------------------------------------------------------------------
 
-export const listLinksForSchedule = query({
-  args: { scheduleId: v.id("schedules") },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("scheduleDiscordLinks")
-      .withIndex("by_schedule", (q) => q.eq("scheduleId", args.scheduleId))
-      .collect();
-  },
-});
-
 export const getLink = internalQuery({
   args: { linkId: v.id("scheduleDiscordLinks") },
   handler: async (ctx, args) => {
@@ -111,18 +110,6 @@ export const getLinkForScheduleChannel = internalQuery({
     return (
       channelLinks.find((link) => link.scheduleId === args.scheduleId) ?? null
     );
-  },
-});
-
-export const getInstallSession = internalQuery({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, args) => {
-    const session = await ctx.db
-      .query("discordInstallSessions")
-      .withIndex("by_sessionToken", (q) => q.eq("sessionToken", args.sessionToken))
-      .unique();
-    if (!session || isInstallSessionExpired(session)) return null;
-    return session;
   },
 });
 
@@ -675,6 +662,32 @@ export const updateLinkSnapshot = internalMutation({
   },
 });
 
+/**
+ * Records a delivery attempt that ended up writing nothing to the channel.
+ *
+ * Only the locked-slot snapshot may be persisted here, and only when the skip
+ * decision was made against it: `lastProjectionSnapshotJson` is the pre-DST
+ * baseline a later notice is computed from, and `lastDstNotificationKey` means
+ * "this notice already reached the channel".
+ */
+export const recordUnchangedSummary = internalMutation({
+  args: {
+    linkId: v.id("scheduleDiscordLinks"),
+    snapshotJson: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const link = await ctx.db.get(args.linkId);
+    if (!link) return;
+    await ctx.db.patch(args.linkId, {
+      ...(args.snapshotJson === undefined
+        ? {}
+        : { lastSnapshotJson: args.snapshotJson }),
+      lastUpdateAttemptAt: Date.now(),
+      lastUpdateError: undefined,
+    });
+  },
+});
+
 export const recordDiscordScheduleMessage = internalMutation({
   args: {
     linkId: v.optional(v.id("scheduleDiscordLinks")),
@@ -757,7 +770,12 @@ export const scheduleDiscordDeliveryRetry = internalMutation({
     // slot. Do not cancel or overwrite that fresher debounced delivery.
     if (!link || link.pendingScheduledId) return false;
 
-    const delayMs = Math.max(250, Math.ceil(args.delayMs));
+    // A pathological `retry_after` would otherwise park the link's single
+    // pending slot far enough out to block every later retry.
+    const delayMs = Math.min(
+      MAX_DISCORD_RETRY_DELAY_MS,
+      Math.max(250, Math.ceil(args.delayMs)),
+    );
     const scheduledId: Id<"_scheduled_functions"> = await ctx.scheduler.runAfter(
       delayMs,
       internal.discord.sendDebouncedUpdate,
@@ -908,12 +926,10 @@ async function sendSummaryFor(
       : snapshot === link.lastSnapshotJson) &&
     !pinnedTargetChanged
   ) {
-    await ctx.runMutation(internal.discord.updateLinkSnapshot, {
+    await ctx.runMutation(internal.discord.recordUnchangedSummary, {
       linkId,
-      snapshotJson: snapshot,
-      projectionSnapshotJson: projectionSnapshot,
-      dstNotificationKey,
-      notified: false,
+      snapshotJson:
+        options.deliveryKind === "projection-refresh" ? undefined : snapshot,
     });
     return true;
   }
@@ -1457,43 +1473,6 @@ export const completeInstallSession = internalAction({
 // User-level Discord identity linking (so /when can list "your" schedules)
 // ---------------------------------------------------------------------------
 
-export const linkDiscordUser = internalMutation({
-  args: {
-    profileId: v.id("userProfiles"),
-    discordUserId: v.string(),
-    discordUsername: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const existingByDiscord = await ctx.db
-      .query("discordUserLinks")
-      .withIndex("by_discordUserId", (q) =>
-        q.eq("discordUserId", args.discordUserId)
-      )
-      .unique();
-    if (existingByDiscord && existingByDiscord.profileId !== args.profileId) {
-      throw new Error("Discord user is already linked to another profile");
-    }
-
-    const existingByProfile = await ctx.db
-      .query("discordUserLinks")
-      .withIndex("by_profileId", (q) => q.eq("profileId", args.profileId))
-      .unique();
-    if (existingByProfile) {
-      await ctx.db.patch(existingByProfile._id, {
-        discordUserId: args.discordUserId,
-        discordUsername: args.discordUsername,
-      });
-      return;
-    }
-    await ctx.db.insert("discordUserLinks", {
-      profileId: args.profileId,
-      discordUserId: args.discordUserId,
-      discordUsername: args.discordUsername,
-      linkedAt: Date.now(),
-    });
-  },
-});
-
 export const linkDiscordUserForInstallSession = internalMutation({
   args: {
     sessionToken: v.string(),
@@ -1583,9 +1562,14 @@ export const getDiscordUserLinkSession = query({
         q.eq("sessionToken", args.sessionToken)
       )
       .unique();
+    // `currentTime` is an argument so the client can re-run this query as the
+    // session ages, but it may only ever bring expiry forward.
+    const serverTime = Date.now();
+    const effectiveTime =
+      args.currentTime > serverTime ? args.currentTime : serverTime;
     if (
       !session ||
-      args.currentTime - session.createdAt > USER_LINK_SESSION_TTL_MS
+      effectiveTime - session.createdAt > USER_LINK_SESSION_TTL_MS
     ) {
       return null;
     }
@@ -1657,29 +1641,6 @@ export const completeDiscordUserLink = mutation({
 
     await ctx.db.delete(session._id);
     return { ok: true };
-  },
-});
-
-export const unlinkDiscordUser = mutation({
-  args: { anonymousId: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const profile = await getCallerProfile(ctx, { anonymousId: args.anonymousId });
-    const link = await ctx.db
-      .query("discordUserLinks")
-      .withIndex("by_profileId", (q) => q.eq("profileId", profile._id))
-      .unique();
-    if (link) await ctx.db.delete(link._id);
-  },
-});
-
-export const getDiscordLinkForProfile = query({
-  args: { anonymousId: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const profile = await getCallerProfile(ctx, { anonymousId: args.anonymousId });
-    return await ctx.db
-      .query("discordUserLinks")
-      .withIndex("by_profileId", (q) => q.eq("profileId", profile._id))
-      .unique();
   },
 });
 

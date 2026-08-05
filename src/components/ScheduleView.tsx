@@ -19,6 +19,7 @@ import { DiscordLinkButton } from "./DiscordLinkButton";
 import { ScheduleOptionsMenu } from "./ScheduleOptionsMenu";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
+import { useToast } from "../hooks/useToast";
 import {
   convertCellToTimezone,
   detectTimezone,
@@ -36,6 +37,7 @@ type CreatorMode = "limit" | "nominate" | "lock" | null;
 export function ScheduleView() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useGoogleAuth();
+  const { showToast } = useToast();
   const { anonymousId, displayName, setDisplayName, hasInteracted } =
     useAnonymousUser();
 
@@ -151,21 +153,40 @@ export function ScheduleView() {
     }
   }, [hasInteracted, isAuthenticated]);
 
+  const reportFailure = useCallback(
+    (message: string, err: unknown) => {
+      console.error(message, err);
+      showToast(message, "error");
+    },
+    [showToast]
+  );
+
+  // The grid only becomes interactive once the profile exists: selections are
+  // stored against it, so claiming the name first would silently drop clicks.
   const handleDisplayNameSubmit = useCallback(
     async (name: string) => {
-      setDisplayName(name);
-      setHasName(true);
-
-      // Create anonymous profile in Convex
-      if (!profile) {
-        await getOrCreateProfile({
-          anonymousId,
-          displayName: name,
-          timezone: timezone || detectTimezone(),
-        });
+      try {
+        if (!profile) {
+          await getOrCreateProfile({
+            anonymousId,
+            displayName: name,
+            timezone: timezone || detectTimezone(),
+          });
+        }
+        setDisplayName(name);
+        setHasName(true);
+      } catch (err) {
+        reportFailure("Couldn't save your name. Please try again.", err);
       }
     },
-    [anonymousId, getOrCreateProfile, profile, setDisplayName, timezone]
+    [
+      anonymousId,
+      getOrCreateProfile,
+      profile,
+      reportFailure,
+      setDisplayName,
+      timezone,
+    ]
   );
 
   // The effective profile for selections: either the user being edited or the current user
@@ -176,6 +197,8 @@ export function ScheduleView() {
       )?.timezone ?? timezone
     : currentLink?.savedAvailabilityTimezone ?? timezone;
 
+  // The three grid handlers below let rejections propagate: WeeklyGrid awaits
+  // them and reports the failure with the interaction that caused it.
   const handleCellChange = useCallback(
     async (
       dayKey: string,
@@ -291,99 +314,135 @@ export function ScheduleView() {
         return;
       }
       if (!profile || !schedule) return;
-      await applyToScheduleMut({
-        savedAvailabilityId,
-        scheduleId: schedule._id,
-      });
+      try {
+        await applyToScheduleMut({
+          savedAvailabilityId,
+          scheduleId: schedule._id,
+        });
+      } catch (err) {
+        reportFailure("Couldn't apply that availability.", err);
+      }
     },
-    [profile, schedule, applyToScheduleMut]
+    [profile, schedule, applyToScheduleMut, reportFailure]
   );
 
   const handleApplyFromModal = useCallback(
     async (savedAvailabilityId: Id<"savedAvailabilities">) => {
       if (!profile || !schedule) return;
-      await applyToScheduleMut({
-        savedAvailabilityId,
-        scheduleId: schedule._id,
-      });
+      try {
+        await applyToScheduleMut({
+          savedAvailabilityId,
+          scheduleId: schedule._id,
+        });
+      } catch (err) {
+        reportFailure("Couldn't apply that availability.", err);
+      }
     },
-    [profile, schedule, applyToScheduleMut]
+    [profile, schedule, applyToScheduleMut, reportFailure]
   );
 
   const handleSaveOverwriteDefault = useCallback(async () => {
     if (!profile || !schedule) return;
-    await saveOverwriteDefaultMut({
-      scheduleId: schedule._id,
-      timezone,
-    });
-  }, [profile, schedule, timezone, saveOverwriteDefaultMut]);
+    try {
+      await saveOverwriteDefaultMut({
+        scheduleId: schedule._id,
+        timezone,
+      });
+    } catch (err) {
+      reportFailure("Couldn't save your availability.", err);
+    }
+  }, [profile, schedule, timezone, saveOverwriteDefaultMut, reportFailure]);
 
   const handleSaveNew = useCallback(
     async (name: string) => {
       if (!profile || !schedule) return;
-      await saveNewAndLinkMut({
-        scheduleId: schedule._id,
-        name,
-        timezone,
-      });
+      try {
+        await saveNewAndLinkMut({
+          scheduleId: schedule._id,
+          name,
+          timezone,
+        });
+      } catch (err) {
+        reportFailure("Couldn't save your availability.", err);
+      }
     },
-    [profile, schedule, timezone, saveNewAndLinkMut]
+    [profile, schedule, timezone, saveNewAndLinkMut, reportFailure]
   );
 
   const handleUnlink = useCallback(async () => {
     if (!profile || !schedule) return;
-    await unlinkFromScheduleMut({
-      scheduleId: schedule._id,
-    });
-  }, [profile, schedule, unlinkFromScheduleMut]);
+    try {
+      await unlinkFromScheduleMut({
+        scheduleId: schedule._id,
+      });
+    } catch (err) {
+      reportFailure("Couldn't unlink that availability.", err);
+    }
+  }, [profile, schedule, unlinkFromScheduleMut, reportFailure]);
 
   // Participant management handlers (creator only)
   const handleToggleAcceptParticipation = useCallback(
     async (accept: boolean) => {
       if (!schedule) return;
-      await setAcceptParticipation({
-        scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
-        acceptParticipation: accept,
-      });
+      try {
+        await setAcceptParticipation({
+          scheduleId: schedule._id,
+          anonymousId: callerAnonymousId,
+          acceptParticipation: accept,
+        });
+      } catch (err) {
+        reportFailure("Couldn't update participation settings.", err);
+      }
     },
-    [schedule, callerAnonymousId, setAcceptParticipation]
+    [schedule, callerAnonymousId, setAcceptParticipation, reportFailure]
   );
 
   const handleToggleAnyoneCanLock = useCallback(
     async (enabled: boolean) => {
       if (!schedule) return;
-      await setAnyoneCanLock({
-        scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
-        anyoneCanLock: enabled,
-      });
+      try {
+        await setAnyoneCanLock({
+          scheduleId: schedule._id,
+          anonymousId: callerAnonymousId,
+          anyoneCanLock: enabled,
+        });
+      } catch (err) {
+        reportFailure("Couldn't update lock permissions.", err);
+      }
     },
-    [schedule, callerAnonymousId, setAnyoneCanLock]
+    [schedule, callerAnonymousId, setAnyoneCanLock, reportFailure]
   );
 
   const handlePromoteLockEditor = useCallback(
     async (profileId: Id<"userProfiles">) => {
       if (!schedule) return;
-      await addLockEditor({
-        scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
-        profileId,
-      });
+      try {
+        await addLockEditor({
+          scheduleId: schedule._id,
+          anonymousId: callerAnonymousId,
+          profileId,
+        });
+      } catch (err) {
+        reportFailure("Couldn't update lock permissions.", err);
+      }
     },
-    [schedule, callerAnonymousId, addLockEditor]
+    [schedule, callerAnonymousId, addLockEditor, reportFailure]
   );
 
   const handleDemoteLockEditor = useCallback(
     async (profileId: Id<"userProfiles">) => {
       if (!schedule) return;
-      await removeLockEditor({
-        scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
-        profileId,
-      });
+      try {
+        await removeLockEditor({
+          scheduleId: schedule._id,
+          anonymousId: callerAnonymousId,
+          profileId,
+        });
+      } catch (err) {
+        reportFailure("Couldn't update lock permissions.", err);
+      }
     },
-    [schedule, callerAnonymousId, removeLockEditor]
+    [schedule, callerAnonymousId, removeLockEditor, reportFailure]
   );
 
   const handleDeleteParticipant = useCallback(
@@ -393,13 +452,23 @@ export function ScheduleView() {
       if (editingProfileId === profileId) {
         setEditingProfileId(null);
       }
-      await removeParticipant({
-        scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
-        profileId,
-      });
+      try {
+        await removeParticipant({
+          scheduleId: schedule._id,
+          anonymousId: callerAnonymousId,
+          profileId,
+        });
+      } catch (err) {
+        reportFailure("Couldn't remove that participant.", err);
+      }
     },
-    [schedule, callerAnonymousId, editingProfileId, removeParticipant]
+    [
+      schedule,
+      callerAnonymousId,
+      editingProfileId,
+      removeParticipant,
+      reportFailure,
+    ]
   );
 
   const handleBlockParticipant = useCallback(
@@ -409,13 +478,23 @@ export function ScheduleView() {
       if (editingProfileId === profileId) {
         setEditingProfileId(null);
       }
-      await blockParticipant({
-        scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
-        profileId,
-      });
+      try {
+        await blockParticipant({
+          scheduleId: schedule._id,
+          anonymousId: callerAnonymousId,
+          profileId,
+        });
+      } catch (err) {
+        reportFailure("Couldn't block that participant.", err);
+      }
     },
-    [schedule, callerAnonymousId, editingProfileId, blockParticipant]
+    [
+      schedule,
+      callerAnonymousId,
+      editingProfileId,
+      blockParticipant,
+      reportFailure,
+    ]
   );
 
   const handleEditParticipant = useCallback(
@@ -448,12 +527,13 @@ export function ScheduleView() {
         archived: !viewerScheduleState.isManuallyArchived,
       });
     } catch (err) {
-      console.error("Failed to update schedule archive state:", err);
+      reportFailure("Couldn't update the archive state.", err);
     } finally {
       setIsArchiving(false);
     }
   }, [
     callerAnonymousId,
+    reportFailure,
     schedule,
     setArchived,
     viewerScheduleState,
@@ -499,33 +579,37 @@ export function ScheduleView() {
   const handleClear = useCallback(async () => {
     if (!profile || !schedule) return;
 
-    if (canLock && creatorMode === "lock") {
-      await clearLockedSlots({
-        scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
-      });
-    } else if (!isCreator) {
-      await clearSelections({
-        scheduleId: schedule._id,
-        profileId: profile._id,
-        anonymousId: callerAnonymousId,
-      });
-    } else {
-      switch (creatorMode) {
-        case "limit":
-          await clearDisallowedSlots({
-            scheduleId: schedule._id,
-            anonymousId: callerAnonymousId,
-          });
-          break;
-        case "nominate":
-          await clearSelections({
-            scheduleId: schedule._id,
-            profileId: profile._id,
-            anonymousId: callerAnonymousId,
-          });
-          break;
+    try {
+      if (canLock && creatorMode === "lock") {
+        await clearLockedSlots({
+          scheduleId: schedule._id,
+          anonymousId: callerAnonymousId,
+        });
+      } else if (!isCreator) {
+        await clearSelections({
+          scheduleId: schedule._id,
+          profileId: profile._id,
+          anonymousId: callerAnonymousId,
+        });
+      } else {
+        switch (creatorMode) {
+          case "limit":
+            await clearDisallowedSlots({
+              scheduleId: schedule._id,
+              anonymousId: callerAnonymousId,
+            });
+            break;
+          case "nominate":
+            await clearSelections({
+              scheduleId: schedule._id,
+              profileId: profile._id,
+              anonymousId: callerAnonymousId,
+            });
+            break;
+        }
       }
+    } catch (err) {
+      reportFailure("Couldn't clear this schedule.", err);
     }
   }, [
     profile,
@@ -537,6 +621,7 @@ export function ScheduleView() {
     clearDisallowedSlots,
     clearLockedSlots,
     callerAnonymousId,
+    reportFailure,
   ]);
 
   const handleDisallowOutsideNominations = useCallback(async () => {
@@ -585,17 +670,22 @@ export function ScheduleView() {
       }
     }
 
-    await setDisallowedSlots({
-      scheduleId: schedule._id,
-      anonymousId: callerAnonymousId,
-      slots: disallowedSlots,
-    });
+    try {
+      await setDisallowedSlots({
+        scheduleId: schedule._id,
+        anonymousId: callerAnonymousId,
+        slots: disallowedSlots,
+      });
+    } catch (err) {
+      reportFailure("Couldn't update the allowed times.", err);
+    }
   }, [
     schedule,
     profile,
     callerAnonymousId,
     referenceDate,
     setDisallowedSlots,
+    reportFailure,
   ]);
 
   if (!schedule) {

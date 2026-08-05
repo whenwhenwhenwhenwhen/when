@@ -18,12 +18,28 @@ function hexToBytes(hex: string): ArrayBuffer {
   return buf;
 }
 
+// Discord signs the timestamp alongside the body, so an old-but-validly-signed
+// request is a replay. The window has to absorb clock drift in both directions.
+export const DISCORD_SIGNATURE_TOLERANCE_MS = 5 * 60 * 1000;
+
 export async function verifyDiscordSignature(
   publicKeyHex: string,
   signatureHex: string,
   timestamp: string,
-  body: string
+  body: string,
+  nowMs: number = Date.now(),
 ): Promise<boolean> {
+  const signedAtSeconds = Number(timestamp);
+  if (!Number.isFinite(signedAtSeconds)) return false;
+  if (
+    Math.abs(nowMs - signedAtSeconds * 1000) > DISCORD_SIGNATURE_TOLERANCE_MS
+  ) {
+    console.error("Discord interaction timestamp outside freshness window", {
+      timestamp,
+    });
+    return false;
+  }
+
   try {
     const publicKey = await crypto.subtle.importKey(
       "raw",
@@ -130,9 +146,26 @@ const DISCORD_INLINE_RETRY_LIMIT = 2;
 const DISCORD_MAX_INLINE_RATE_LIMIT_WAIT_MS = 5_000;
 const DISCORD_RATE_LIMIT_SAFETY_MS = 100;
 const DISCORD_WRITE_RATE_LIMIT_CODES = new Set([20016, 20022, 20028, 20029]);
+// Interaction routes are keyed by a single-use token, so these best-effort
+// caches would otherwise grow for the lifetime of the isolate.
+const DISCORD_RATE_LIMIT_CACHE_LIMIT = 500;
 const routeToBucket = new Map<string, string>();
 const rateLimitResetAtByKey = new Map<string, number>();
 let globalRateLimitResetAt = 0;
+
+function setBoundedCacheEntry<T>(
+  cache: Map<string, T>,
+  key: string,
+  value: T,
+): void {
+  // Re-inserting moves the key to the end, so the oldest write evicts first.
+  cache.delete(key);
+  cache.set(key, value);
+  for (const oldest of cache.keys()) {
+    if (cache.size <= DISCORD_RATE_LIMIT_CACHE_LIMIT) break;
+    cache.delete(oldest);
+  }
+}
 
 function finiteHeaderNumber(value: string | null): number | undefined {
   if (value === null || value.trim() === "") return undefined;
@@ -206,7 +239,7 @@ function recordRateLimitHeaders(
   const bucketKey = metadata.bucket
     ? `bucket:${metadata.bucket}:${majorParameter}`
     : `route:${routeKey}`;
-  if (metadata.bucket) routeToBucket.set(routeKey, bucketKey);
+  if (metadata.bucket) setBoundedCacheEntry(routeToBucket, routeKey, bucketKey);
 
   const resetAt = rateLimitResetAt(metadata);
   if (resetAt === undefined) return;
@@ -214,7 +247,7 @@ function recordRateLimitHeaders(
     globalRateLimitResetAt = Math.max(globalRateLimitResetAt, resetAt);
   }
   if (forceLimited || metadata.remaining === 0) {
-    rateLimitResetAtByKey.set(bucketKey, resetAt);
+    setBoundedCacheEntry(rateLimitResetAtByKey, bucketKey, resetAt);
   }
 }
 

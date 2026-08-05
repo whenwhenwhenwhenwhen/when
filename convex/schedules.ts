@@ -148,10 +148,16 @@ async function getCallerProfile(
 
   if (!anonymousId) return null;
 
-  return await ctx.db
+  const anonymousProfile = await ctx.db
     .query("userProfiles")
     .withIndex("by_anonymousId", (q) => q.eq("anonymousId", anonymousId))
     .unique();
+
+  // An `anonymousId` still attached to an SSO-linked profile predates the
+  // upgrade path clearing it, and must not authorize anything. Mirrors
+  // `getActorProfileId` in selections.ts and `getProfileForSettings` in users.ts.
+  if (!anonymousProfile || anonymousProfile.authUserId) return null;
+  return anonymousProfile;
 }
 
 async function requireCallerProfile(
@@ -776,6 +782,12 @@ export const update = mutation({
       >();
 
       for (const sel of selections) {
+        // Calendar-derived rows describe specific dates, which carry no meaning
+        // once the schedule is a weekly grid. Dropping them lets the next sync
+        // rebuild the projection instead of stranding rows whose dayKey no
+        // longer matches the coordinates their source uses.
+        if (sel.source === "calendar") continue;
+
         const dow = getDayOfWeekFromISODate(sel.dayKey);
         const key = `${sel.profileId}|${dow}|${sel.timeSlot}`;
         const existing = selectionMap.get(key);
@@ -808,6 +820,15 @@ export const update = mutation({
           timezone: converted.timezone,
           state: converted.state,
         });
+      }
+
+      // Overrides are keyed by the ISO dayKeys that no longer exist.
+      const staleOverrides = await ctx.db
+        .query("calendarOverrides")
+        .withIndex("by_scheduleId", (q) => q.eq("scheduleId", args.scheduleId))
+        .take(SCHEDULE_CLEANUP_BATCH_SIZE);
+      for (const override of staleOverrides) {
+        await ctx.db.delete(override._id);
       }
 
       // ── Convert disallowed slots ──
@@ -865,6 +886,48 @@ export const update = mutation({
     }
 
     await ctx.db.patch(args.scheduleId, cleanUpdates);
+  },
+});
+
+// A participant who leaves and later rejoins would otherwise inherit their old
+// overrides, which suppress calendar-derived "can't do" cells they no longer
+// have any reason to be hiding.
+async function clearCalendarOverridesForProfile(
+  ctx: MutationCtx,
+  scheduleId: Id<"schedules">,
+  profileId: Id<"userProfiles">
+) {
+  const overrides = await ctx.db
+    .query("calendarOverrides")
+    .withIndex("by_profile_schedule", (q) =>
+      q.eq("profileId", profileId).eq("scheduleId", scheduleId)
+    )
+    .take(SCHEDULE_CLEANUP_BATCH_SIZE);
+
+  for (const override of overrides) {
+    await ctx.db.delete(override._id);
+  }
+
+  if (overrides.length === SCHEDULE_CLEANUP_BATCH_SIZE) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.schedules.continueClearCalendarOverrides,
+      { scheduleId, profileId }
+    );
+  }
+}
+
+export const continueClearCalendarOverrides = internalMutation({
+  args: {
+    scheduleId: v.id("schedules"),
+    profileId: v.id("userProfiles"),
+  },
+  handler: async (ctx, args) => {
+    await clearCalendarOverridesForProfile(
+      ctx,
+      args.scheduleId,
+      args.profileId
+    );
   },
 });
 
@@ -935,6 +998,26 @@ async function cleanupRemovedScheduleBatch(
     await ctx.db.delete(invalidation._id);
   }
 
+  const overrides = await ctx.db
+    .query("calendarOverrides")
+    .withIndex("by_scheduleId", (q) => q.eq("scheduleId", scheduleId))
+    .take(SCHEDULE_CLEANUP_BATCH_SIZE);
+  for (const override of overrides) {
+    await ctx.db.delete(override._id);
+  }
+
+  // Provenance rows outlive the link they came from, so they need removing
+  // here as well as in the Discord unlink flow.
+  const discordMessages = await ctx.db
+    .query("discordScheduleMessages")
+    .withIndex("by_scheduleId_and_channelId", (q) =>
+      q.eq("scheduleId", scheduleId)
+    )
+    .take(SCHEDULE_CLEANUP_BATCH_SIZE);
+  for (const message of discordMessages) {
+    await ctx.db.delete(message._id);
+  }
+
   const shouldContinue =
     selections.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     links.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
@@ -942,7 +1025,9 @@ async function cleanupRemovedScheduleBatch(
     archives.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     dstLogs.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
     discordLinks.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
-    invalidations.length === SCHEDULE_CLEANUP_BATCH_SIZE;
+    invalidations.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
+    overrides.length === SCHEDULE_CLEANUP_BATCH_SIZE ||
+    discordMessages.length === SCHEDULE_CLEANUP_BATCH_SIZE;
 
   if (shouldContinue) {
     await ctx.scheduler.runAfter(0, internal.schedules.cleanupRemovedSchedule, {
@@ -958,7 +1043,9 @@ async function cleanupRemovedScheduleBatch(
       archives.length +
       dstLogs.length +
       discordLinks.length +
-      invalidations.length,
+      invalidations.length +
+      overrides.length +
+      discordMessages.length,
     scheduled: shouldContinue,
   };
 }
@@ -1166,6 +1253,12 @@ export const removeParticipant = mutation({
       args.profileId
     );
 
+    await clearCalendarOverridesForProfile(
+      ctx,
+      args.scheduleId,
+      args.profileId
+    );
+
     await ctx.scheduler.runAfter(0, internal.selections.continueClearForProfile, {
       scheduleId: args.scheduleId,
       profileId: args.profileId,
@@ -1234,6 +1327,12 @@ export const blockParticipant = mutation({
     if (archive) await ctx.db.delete(archive._id);
 
     await invalidateSelectionBatchesForProfile(
+      ctx,
+      args.scheduleId,
+      args.profileId
+    );
+
+    await clearCalendarOverridesForProfile(
       ctx,
       args.scheduleId,
       args.profileId

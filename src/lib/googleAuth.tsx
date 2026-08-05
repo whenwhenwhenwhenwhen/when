@@ -296,9 +296,26 @@ export function GoogleAuthProvider({
   }, []);
 
   const signOut = useCallback(() => {
+    const sessionToken = localStorage.getItem(SESSION_KEY);
+
+    // Local state is cleared first so the UI signs out immediately even if the
+    // network call fails; the request destroys the server-side session, without
+    // which the token would stay usable indefinitely.
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(SESSION_KEY);
     setToken(null);
+
+    if (!sessionToken) return;
+
+    void fetch(`${getConfig().CONVEX_SITE_URL}/auth/signout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionToken }),
+      keepalive: true,
+    }).catch(() => {
+      // Revocation is best-effort from the client; the session still expires
+      // on its own deadline and the cleanup cron reaps it.
+    });
   }, []);
 
   const value = useMemo<GoogleAuthContextType>(

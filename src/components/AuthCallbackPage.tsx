@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   TOKEN_KEY,
   SESSION_KEY,
@@ -19,8 +19,9 @@ import styles from "../styles/app.module.css";
  * This component:
  * 1. Verifies the CSRF nonce against sessionStorage (prevents session fixation)
  * 2. Validates the JWT structure and claims (defense-in-depth)
- * 3. Stores the ID token and session token in localStorage
- * 4. Navigates to the original page via full-page load so the
+ * 3. Stores the ID token and session token in localStorage, and only once
+ *    the ID token has validated
+ * 4. Navigates to the original same-origin path via full-page load so the
  *    GoogleAuthProvider re-initialises with the fresh token
  *
  * The session token is an opaque UUID — it does not contain any secrets.
@@ -28,7 +29,14 @@ import styles from "../styles/app.module.css";
  * to the client.
  */
 export function AuthCallbackPage() {
+  // The nonce is single-use, so a second invocation (StrictMode remounts the
+  // effect in development) would always fail verification.
+  const hasRun = useRef(false);
+
   useEffect(() => {
+    if (hasRun.current) return;
+    hasRun.current = true;
+
     const hash = window.location.hash.substring(1);
     const params = new URLSearchParams(hash);
     const token = params.get("token");
@@ -54,22 +62,25 @@ export function AuthCallbackPage() {
     }
 
     // ── Token validation & storage ───────────────────────────────────────
-    if (token) {
-      if (validateGoogleJwt(token)) {
-        localStorage.setItem(TOKEN_KEY, token);
-      } else {
-        console.warn(
-          "Received Google ID token failed client-side validation. " +
-            "Discarding token.",
-        );
-      }
+    if (!token || !validateGoogleJwt(token)) {
+      console.warn(
+        "Google sign-in did not return a valid ID token. " +
+          "Discarding the token and session.",
+      );
+      window.location.replace("/");
+      return;
     }
 
+    localStorage.setItem(TOKEN_KEY, token);
     if (sessionToken) {
       localStorage.setItem(SESSION_KEY, sessionToken);
     }
 
-    window.location.replace(redirect || "/");
+    // The redirect arrives inside the OAuth state, so it is only trusted as
+    // far as being a path on this origin.
+    const isSameOriginPath =
+      redirect.startsWith("/") && !redirect.startsWith("//");
+    window.location.replace(isSameOriginPath ? redirect : "/");
   }, []);
 
   return (

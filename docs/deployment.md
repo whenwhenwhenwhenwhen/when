@@ -65,6 +65,28 @@ You can review Convex environment variables with:
 npx convex env list
 ```
 
+## Session Lifetime
+
+Signing in creates a row in `authSessions` holding the Google refresh token.
+The browser only ever receives an opaque, HMAC-signed session token; the
+refresh token itself never leaves the backend.
+
+Sessions end at whichever of these comes first:
+
+| Bound | Default | Measured from | Enforced in |
+| --- | --- | --- | --- |
+| Absolute | 30 days | sign-in (`expiresAt`) | `/auth/refresh` |
+| Idle | 7 days | last successful refresh (`lastUsedAt`) | `/auth/refresh` |
+| Explicit | immediate | sign-out (`/auth/signout`) | client sign-out |
+
+Both defaults live in `convex/authSessions.ts` as `SESSION_ABSOLUTE_TTL_MS` and
+`SESSION_IDLE_TTL_MS`. Shortening them takes effect on the next refresh, since
+expiry is evaluated at use rather than stamped once at creation.
+
+Signing out deletes the session row and asks Google to revoke the refresh
+token. Expired rows are swept every 6 hours by the `auth-session-cleanup`
+cron, so revocation never depends on the client's request arriving.
+
 ## Frontend Runtime Config
 
 The frontend needs these public values:

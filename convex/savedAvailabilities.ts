@@ -1,8 +1,19 @@
 import { v } from "convex/values";
 import { DateTime } from "luxon";
-import { mutation, query, MutationCtx, QueryCtx } from "./_generated/server";
+import {
+  internalMutation,
+  mutation,
+  query,
+  MutationCtx,
+  QueryCtx,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { cellKey, convertCellToTimezone } from "./timezone";
+
+const SELECTION_DELETE_BATCH_SIZE = 500;
+const EFFECTIVE_SELECTION_LIMIT = 2000;
+const AVAILABILITY_LINK_BATCH_SIZE = 10;
 
 type SavedAvailabilitySlot = {
   dayKey: string;
@@ -45,6 +56,147 @@ function sameProfile(
   return left === right;
 }
 
+// Same participation gate as selections.ts. Every mutation in this file acts on
+// the authenticated profile itself, so the actor is the creator exactly when the
+// target profile is, and the creator is never denied their own schedule.
+async function isParticipationDenied(
+  ctx: MutationCtx,
+  schedule: Doc<"schedules">,
+  profileId: Id<"userProfiles">
+): Promise<boolean> {
+  if (sameProfile(schedule.creatorProfileId, profileId)) return false;
+
+  if (schedule.acceptParticipation === false) return true;
+
+  const blocked = await ctx.db
+    .query("blockedProfiles")
+    .withIndex("by_schedule_profile", (q) =>
+      q.eq("scheduleId", schedule._id).eq("profileId", profileId)
+    )
+    .unique();
+  return blocked !== null;
+}
+
+// Disallowed slots and one-off date ranges are expressed in the schedule's
+// immutable creatorTimezone, so saved slots must be converted into those
+// coordinates before they can be compared.
+function allowedSlotsForSchedule(
+  schedule: Doc<"schedules">,
+  slots: SavedAvailabilitySlot[],
+  slotsTimezone: string
+): SavedAvailabilitySlot[] {
+  const referenceDate = DateTime.now().setZone(schedule.creatorTimezone);
+  const disallowed = schedule.disallowedSlots;
+
+  return slots.filter((slot) => {
+    const scheduleCell = convertCellToTimezone(
+      schedule.type,
+      slot,
+      slotsTimezone,
+      schedule.creatorTimezone,
+      referenceDate
+    );
+
+    if (
+      disallowed?.some(
+        (s) =>
+          s.dayKey === scheduleCell.dayKey &&
+          s.timeSlot === scheduleCell.timeSlot
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      schedule.type === "one-off" &&
+      schedule.dateRangeStart &&
+      schedule.dateRangeEnd &&
+      (scheduleCell.dayKey < schedule.dateRangeStart ||
+        scheduleCell.dayKey > schedule.dateRangeEnd)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+// Copy a saved availability's slots back into the schedule's selections,
+// dropping anything the schedule does not accept from this profile.
+async function copySlotsToSelections(
+  ctx: MutationCtx,
+  scheduleId: Id<"schedules">,
+  profileId: Id<"userProfiles">,
+  savedAvail: Doc<"savedAvailabilities">
+) {
+  const schedule = await ctx.db.get(scheduleId);
+  if (!schedule) return;
+  if (await isParticipationDenied(ctx, schedule, profileId)) return;
+
+  const slots = allowedSlotsForSchedule(
+    schedule,
+    savedAvail.slots,
+    savedAvail.timezone
+  );
+
+  for (const slot of slots) {
+    await ctx.db.insert("selections", {
+      scheduleId,
+      profileId,
+      dayKey: slot.dayKey,
+      timeSlot: slot.timeSlot,
+      timezone: savedAvail.timezone,
+      state: slot.state,
+    });
+  }
+}
+
+// Delete the profile's recurring selections one page at a time; exceptions are
+// kept because they are not served by the saved availability.
+async function deleteRecurringSelectionsBatch(
+  ctx: MutationCtx,
+  scheduleId: Id<"schedules">,
+  profileId: Id<"userProfiles">,
+  cursor: string | null
+) {
+  const page = await ctx.db
+    .query("selections")
+    .withIndex("by_schedule_profile", (q) =>
+      q.eq("scheduleId", scheduleId).eq("profileId", profileId)
+    )
+    .paginate({ numItems: SELECTION_DELETE_BATCH_SIZE, cursor });
+
+  for (const sel of page.page) {
+    if (!sel.isException) {
+      await ctx.db.delete(sel._id);
+    }
+  }
+
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.savedAvailabilities.continueDeleteRecurringSelections,
+      { scheduleId, profileId, cursor: page.continueCursor }
+    );
+  }
+}
+
+export const continueDeleteRecurringSelections = internalMutation({
+  args: {
+    scheduleId: v.id("schedules"),
+    profileId: v.id("userProfiles"),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await deleteRecurringSelectionsBatch(
+      ctx,
+      args.scheduleId,
+      args.profileId,
+      args.cursor
+    );
+  },
+});
+
 // List saved availabilities for the authenticated profile
 export const listForProfile = query({
   args: {},
@@ -55,37 +207,6 @@ export const listForProfile = query({
       .query("savedAvailabilities")
       .withIndex("by_profileId", (q) => q.eq("profileId", profile._id))
       .collect();
-  },
-});
-
-// Get availability link for a schedule and the authenticated profile
-export const getLinkForSchedule = query({
-  args: {
-    scheduleId: v.id("schedules"),
-  },
-  handler: async (ctx, args) => {
-    const profile = await requireAuthenticatedProfile(ctx);
-
-    const link = await ctx.db
-      .query("availabilityLinks")
-      .withIndex("by_schedule_profile", (q) =>
-        q.eq("scheduleId", args.scheduleId).eq("profileId", profile._id)
-      )
-      .unique();
-
-    if (!link) return null;
-
-    const savedAvail = await requireOwnedSavedAvailability(
-      ctx,
-      link.savedAvailabilityId,
-      profile._id
-    );
-
-    return {
-      linkId: link._id,
-      savedAvailabilityId: link.savedAvailabilityId,
-      savedAvailabilityName: savedAvail.name,
-    };
   },
 });
 
@@ -145,7 +266,7 @@ async function getEffectiveSlots(
     .withIndex("by_schedule_profile", (q) =>
       q.eq("scheduleId", scheduleId).eq("profileId", profileId)
     )
-    .collect();
+    .take(EFFECTIVE_SELECTION_LIMIT);
 
   const recurringSelections = selections.filter((s) => !s.isException);
   return normalizeSlots(
@@ -170,6 +291,14 @@ export const saveNewAndLink = mutation({
   handler: async (ctx, args) => {
     const profile = await requireAuthenticatedProfile(ctx);
 
+    const schedule = await ctx.db.get(args.scheduleId);
+    if (!schedule) throw new Error("Schedule not found");
+
+    // Guard: reject if participation denied (closed or blocked)
+    if (await isParticipationDenied(ctx, schedule, profile._id)) {
+      return null;
+    }
+
     // Get effective current slots
     const slots = await getEffectiveSlots(
       ctx,
@@ -190,17 +319,12 @@ export const saveNewAndLink = mutation({
     }
 
     // Delete non-exception selections (they'll be served by the saved availability)
-    const selections = await ctx.db
-      .query("selections")
-      .withIndex("by_schedule_profile", (q) =>
-        q.eq("scheduleId", args.scheduleId).eq("profileId", profile._id)
-      )
-      .collect();
-    for (const sel of selections) {
-      if (!sel.isException) {
-        await ctx.db.delete(sel._id);
-      }
-    }
+    await deleteRecurringSelectionsBatch(
+      ctx,
+      args.scheduleId,
+      profile._id,
+      null
+    );
 
     // Create saved availability
     const savedAvailId = await ctx.db.insert("savedAvailabilities", {
@@ -230,6 +354,14 @@ export const saveOverwriteDefaultAndLink = mutation({
   handler: async (ctx, args) => {
     const profile = await requireAuthenticatedProfile(ctx);
 
+    const schedule = await ctx.db.get(args.scheduleId);
+    if (!schedule) throw new Error("Schedule not found");
+
+    // Guard: reject if participation denied (closed or blocked)
+    if (await isParticipationDenied(ctx, schedule, profile._id)) {
+      return null;
+    }
+
     // Get effective current slots
     const slots = await getEffectiveSlots(
       ctx,
@@ -250,17 +382,12 @@ export const saveOverwriteDefaultAndLink = mutation({
     }
 
     // Delete non-exception selections
-    const selections = await ctx.db
-      .query("selections")
-      .withIndex("by_schedule_profile", (q) =>
-        q.eq("scheduleId", args.scheduleId).eq("profileId", profile._id)
-      )
-      .collect();
-    for (const sel of selections) {
-      if (!sel.isException) {
-        await ctx.db.delete(sel._id);
-      }
-    }
+    await deleteRecurringSelectionsBatch(
+      ctx,
+      args.scheduleId,
+      profile._id,
+      null
+    );
 
     // Find or create default availability
     const allSaved = await ctx.db
@@ -311,6 +438,14 @@ export const applyToSchedule = mutation({
       profile._id
     );
 
+    const schedule = await ctx.db.get(args.scheduleId);
+    if (!schedule) throw new Error("Schedule not found");
+
+    // Guard: reject if participation denied (closed or blocked)
+    if (await isParticipationDenied(ctx, schedule, profile._id)) {
+      return;
+    }
+
     // Remove existing link if any
     const existingLink = await ctx.db
       .query("availabilityLinks")
@@ -323,17 +458,12 @@ export const applyToSchedule = mutation({
     }
 
     // Delete non-exception selections (replaced by saved availability)
-    const selections = await ctx.db
-      .query("selections")
-      .withIndex("by_schedule_profile", (q) =>
-        q.eq("scheduleId", args.scheduleId).eq("profileId", profile._id)
-      )
-      .collect();
-    for (const sel of selections) {
-      if (!sel.isException) {
-        await ctx.db.delete(sel._id);
-      }
-    }
+    await deleteRecurringSelectionsBatch(
+      ctx,
+      args.scheduleId,
+      profile._id,
+      null
+    );
 
     // Create link
     await ctx.db.insert("availabilityLinks", {
@@ -368,19 +498,64 @@ export const unlinkFromSchedule = mutation({
       profile._id
     );
 
-    for (const slot of savedAvail.slots) {
-      await ctx.db.insert("selections", {
-        scheduleId: args.scheduleId,
-        profileId: profile._id,
-        dayKey: slot.dayKey,
-        timeSlot: slot.timeSlot,
-        timezone: savedAvail.timezone,
-        state: slot.state,
-      });
-    }
+    await copySlotsToSelections(ctx, args.scheduleId, profile._id, savedAvail);
 
     // Delete the link
     await ctx.db.delete(link._id);
+  },
+});
+
+// Unlink from all schedules a page at a time, copying slots back. The saved
+// availability is only removed once every link has been processed, so the
+// continuation can still read its slots.
+async function processDeleteSavedBatch(
+  ctx: MutationCtx,
+  savedAvailabilityId: Id<"savedAvailabilities">,
+  profileId: Id<"userProfiles">,
+  cursor: string | null
+) {
+  const savedAvail = await ctx.db.get(savedAvailabilityId);
+  if (!savedAvail || !sameProfile(savedAvail.profileId, profileId)) return;
+
+  const page = await ctx.db
+    .query("availabilityLinks")
+    .withIndex("by_savedAvailability", (q) =>
+      q.eq("savedAvailabilityId", savedAvailabilityId)
+    )
+    .paginate({ numItems: AVAILABILITY_LINK_BATCH_SIZE, cursor });
+
+  for (const link of page.page) {
+    if (sameProfile(link.profileId, profileId)) {
+      await copySlotsToSelections(ctx, link.scheduleId, profileId, savedAvail);
+    }
+    await ctx.db.delete(link._id);
+  }
+
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.savedAvailabilities.continueDeleteSaved,
+      { savedAvailabilityId, profileId, cursor: page.continueCursor }
+    );
+    return;
+  }
+
+  await ctx.db.delete(savedAvailabilityId);
+}
+
+export const continueDeleteSaved = internalMutation({
+  args: {
+    savedAvailabilityId: v.id("savedAvailabilities"),
+    profileId: v.id("userProfiles"),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await processDeleteSavedBatch(
+      ctx,
+      args.savedAvailabilityId,
+      args.profileId,
+      args.cursor
+    );
   },
 });
 
@@ -391,38 +566,18 @@ export const deleteSaved = mutation({
   },
   handler: async (ctx, args) => {
     const profile = await requireAuthenticatedProfile(ctx);
-    const savedAvail = await requireOwnedSavedAvailability(
+    await requireOwnedSavedAvailability(
       ctx,
       args.savedAvailabilityId,
       profile._id
     );
 
-    // Unlink from all schedules, copying slots back
-    const links = await ctx.db
-      .query("availabilityLinks")
-      .withIndex("by_savedAvailability", (q) =>
-        q.eq("savedAvailabilityId", args.savedAvailabilityId)
-      )
-      .collect();
-
-    for (const link of links) {
-      if (sameProfile(link.profileId, profile._id)) {
-        for (const slot of savedAvail.slots) {
-          await ctx.db.insert("selections", {
-            scheduleId: link.scheduleId,
-            profileId: profile._id,
-            dayKey: slot.dayKey,
-            timeSlot: slot.timeSlot,
-            timezone: savedAvail.timezone,
-            state: slot.state,
-          });
-        }
-      }
-      await ctx.db.delete(link._id);
-    }
-
-    // Delete the saved availability
-    await ctx.db.delete(args.savedAvailabilityId);
+    await processDeleteSavedBatch(
+      ctx,
+      args.savedAvailabilityId,
+      profile._id,
+      null
+    );
   },
 });
 
@@ -444,23 +599,3 @@ export const renameSaved = mutation({
   },
 });
 
-// Get linked schedule count for a saved availability
-export const getLinkedScheduleCount = query({
-  args: { savedAvailabilityId: v.id("savedAvailabilities") },
-  handler: async (ctx, args) => {
-    const profile = await requireAuthenticatedProfile(ctx);
-    await requireOwnedSavedAvailability(
-      ctx,
-      args.savedAvailabilityId,
-      profile._id
-    );
-
-    const links = await ctx.db
-      .query("availabilityLinks")
-      .withIndex("by_savedAvailability", (q) =>
-        q.eq("savedAvailabilityId", args.savedAvailabilityId)
-      )
-      .collect();
-    return links.length;
-  },
-});

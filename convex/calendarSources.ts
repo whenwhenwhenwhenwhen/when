@@ -10,6 +10,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
+import { normalizeIcsUrl } from "./calendarSync";
 
 async function getAuthenticatedProfile(
   ctx: {
@@ -42,8 +43,12 @@ function redactedCalendarSource(source: Doc<"calendarSources">) {
     hasIcsUrl: source.type === "ics" && !!source.icsUrl,
     lastSyncAt: source.lastSyncAt,
     lastSyncStatus: source.lastSyncStatus,
+    // Provider messages can leak feed URLs or tokens, so errors are generic.
+    // Notes recorded alongside a successful sync are ours and safe to show.
     lastSyncError:
-      source.lastSyncStatus === "error" ? "Calendar sync failed" : undefined,
+      source.lastSyncStatus === "error"
+        ? "Calendar sync failed"
+        : source.lastSyncError,
     enabled: source.enabled,
   };
 }
@@ -164,6 +169,8 @@ export const saveIcsUrl = mutation({
   handler: async (ctx, args) => {
     await getAuthenticatedProfile(ctx, args.profileId);
 
+    const icsUrl = normalizeIcsUrl(args.icsUrl);
+
     const sources = await ctx.db
       .query("calendarSources")
       .withIndex("by_profileId", (q) => q.eq("profileId", args.profileId))
@@ -172,14 +179,14 @@ export const saveIcsUrl = mutation({
 
     if (icsSource) {
       await ctx.db.patch(icsSource._id, {
-        icsUrl: args.icsUrl,
+        icsUrl,
         enabled: true,
       });
     } else {
       await ctx.db.insert("calendarSources", {
         profileId: args.profileId,
         type: "ics",
-        icsUrl: args.icsUrl,
+        icsUrl,
         enabled: true,
         createdAt: Date.now(),
       });

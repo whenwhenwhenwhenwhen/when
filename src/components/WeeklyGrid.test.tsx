@@ -7,13 +7,44 @@ import { Id } from "../../convex/_generated/dataModel";
 import styles from "../styles/app.module.css";
 import { WeeklyGrid } from "./WeeklyGrid";
 
+const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+
+function makeRect(left: number, top: number, width: number, height: number) {
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+const iconTitles = (cell: Element) =>
+  Array.from(cell.querySelectorAll("img")).map((img) => img.title);
+
 describe("WeeklyGrid participant timezone editing", () => {
   beforeEach(() => {
     Settings.now = () => Date.parse("2026-07-29T12:00:00+10:00");
+    // jsdom has no layout, so drag hit-testing needs a synthetic grid:
+    // 100x24 cells laid out from the cell's row and column position.
+    Element.prototype.getBoundingClientRect = function () {
+      const cell = this as HTMLTableCellElement;
+      const row = cell.parentElement as HTMLTableRowElement | null;
+      if (cell.tagName !== "TD" || !row?.parentElement) {
+        return makeRect(0, 0, 0, 0);
+      }
+      const rowIndex = Array.from(row.parentElement.children).indexOf(row);
+      return makeRect(cell.cellIndex * 100, rowIndex * 24, 100, 24);
+    };
   });
 
   afterEach(() => {
     Settings.now = () => Date.now();
+    Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
   });
 
   it("submits clicked cells in the edited participant's timezone", async () => {
@@ -356,6 +387,227 @@ describe("WeeklyGrid participant timezone editing", () => {
     expect(onCellChange).not.toHaveBeenCalled();
     expect(onBatchChange).not.toHaveBeenCalled();
     expect(onCreatorSlotChange).not.toHaveBeenCalled();
+  });
+
+  it("shows another participant's exception instead of their recurring selection", () => {
+    const viewerId = "aaa-viewer" as Id<"userProfiles">;
+    const otherId = "bbb-other" as Id<"userProfiles">;
+    const { container } = render(
+      <WeeklyGrid
+        schedule={{
+          _id: "schedule" as Id<"schedules">,
+          title: "Exception visibility",
+          type: "recurring",
+          creatorTimezone: "Australia/Melbourne",
+          creatorProfileId: "creator" as Id<"userProfiles">,
+          selections: [
+            {
+              _id: "other-base",
+              scheduleId: "schedule",
+              profileId: otherId,
+              dayKey: "2",
+              timeSlot: "09:00",
+              timezone: "Australia/Melbourne",
+              state: "can-do",
+            },
+            {
+              _id: "other-exception",
+              scheduleId: "schedule",
+              profileId: otherId,
+              dayKey: "2",
+              timeSlot: "09:00",
+              timezone: "Australia/Melbourne",
+              state: "cant-do",
+              isException: true,
+              exceptionDate: "2026-07-28",
+            },
+          ],
+          profiles: [
+            {
+              _id: viewerId,
+              displayName: "Viewer",
+              profileImageUrl: "https://example.com/viewer.png",
+              timezone: "Australia/Melbourne",
+            },
+            {
+              _id: otherId,
+              displayName: "Other",
+              profileImageUrl: "https://example.com/other.png",
+              timezone: "Australia/Melbourne",
+            },
+          ],
+        }}
+        profileId={viewerId}
+        userTimezone="Australia/Melbourne"
+        selectionTimezone="Australia/Melbourne"
+        weekStartDay={0}
+        selectMode="auto"
+        allowMode="auto"
+        weekOffset={0}
+        canInteract
+        isCreator={false}
+        canLock={false}
+        creatorMode={null}
+        onCellChange={vi.fn(() => Promise.resolve())}
+        onBatchChange={vi.fn(() => Promise.resolve())}
+        onCreatorSlotChange={vi.fn(() => Promise.resolve())}
+      />
+    );
+
+    // Tuesday 2026-07-28 at 09:00 — the exception's date.
+    const rows = container.querySelectorAll("tbody tr");
+    const tuesdayNine = rows[18].querySelectorAll("td")[3];
+    expect(iconTitles(tuesdayNine)).toEqual(["Other (cant-do)"]);
+
+    // The following Tuesday still shows the recurring selection.
+    const wednesdayNine = rows[18].querySelectorAll("td")[4];
+    expect(iconTitles(wednesdayNine)).toEqual([]);
+  });
+
+  it("keeps other participants' selections visible on a cell the viewer excepts", () => {
+    const viewerId = "aaa-viewer" as Id<"userProfiles">;
+    const otherId = "bbb-other" as Id<"userProfiles">;
+    const { container } = render(
+      <WeeklyGrid
+        schedule={{
+          _id: "schedule" as Id<"schedules">,
+          title: "Viewer exception",
+          type: "recurring",
+          creatorTimezone: "Australia/Melbourne",
+          creatorProfileId: "creator" as Id<"userProfiles">,
+          selections: [
+            {
+              _id: "other-base",
+              scheduleId: "schedule",
+              profileId: otherId,
+              dayKey: "2",
+              timeSlot: "09:00",
+              timezone: "Australia/Melbourne",
+              state: "can-do",
+            },
+            {
+              _id: "viewer-exception",
+              scheduleId: "schedule",
+              profileId: viewerId,
+              dayKey: "2",
+              timeSlot: "09:00",
+              timezone: "Australia/Melbourne",
+              state: "maybe",
+              isException: true,
+              exceptionDate: "2026-07-28",
+            },
+          ],
+          profiles: [
+            {
+              _id: viewerId,
+              displayName: "Viewer",
+              profileImageUrl: "https://example.com/viewer.png",
+              timezone: "Australia/Melbourne",
+            },
+            {
+              _id: otherId,
+              displayName: "Other",
+              profileImageUrl: "https://example.com/other.png",
+              timezone: "Australia/Melbourne",
+            },
+          ],
+        }}
+        profileId={viewerId}
+        userTimezone="Australia/Melbourne"
+        selectionTimezone="Australia/Melbourne"
+        weekStartDay={0}
+        selectMode="auto"
+        allowMode="auto"
+        weekOffset={0}
+        canInteract
+        isCreator={false}
+        canLock={false}
+        creatorMode={null}
+        onCellChange={vi.fn(() => Promise.resolve())}
+        onBatchChange={vi.fn(() => Promise.resolve())}
+        onCreatorSlotChange={vi.fn(() => Promise.resolve())}
+      />
+    );
+
+    const tuesdayNine = container
+      .querySelectorAll("tbody tr")[18]
+      .querySelectorAll("td")[3];
+    // Icons are grouped by state, can-do first.
+    expect(iconTitles(tuesdayNine)).toEqual([
+      "Other (can-do)",
+      "Viewer (maybe)",
+    ]);
+    // The viewer's own state still resolves to their exception.
+    expect(tuesdayNine.classList.contains(styles.stateMaybe)).toBe(true);
+  });
+
+  it("commits the full dragged range on mouse up", async () => {
+    const onBatchChange = vi.fn(
+      (_cells: { dayKey: string; timeSlot: string; state: string }[]) =>
+        Promise.resolve()
+    );
+    const participantId = "participant" as Id<"userProfiles">;
+    const { container } = render(
+      <WeeklyGrid
+        schedule={{
+          _id: "schedule" as Id<"schedules">,
+          title: "Drag range",
+          type: "recurring",
+          creatorTimezone: "Australia/Melbourne",
+          creatorProfileId: "creator" as Id<"userProfiles">,
+          selections: [],
+          profiles: [],
+        }}
+        profileId={participantId}
+        userTimezone="Australia/Melbourne"
+        selectionTimezone="Australia/Melbourne"
+        weekStartDay={0}
+        selectMode="auto"
+        allowMode="auto"
+        weekOffset={0}
+        canInteract
+        isCreator={false}
+        canLock={false}
+        creatorMode={null}
+        onCellChange={vi.fn(() => Promise.resolve())}
+        onBatchChange={onBatchChange}
+        onCreatorSlotChange={vi.fn(() => Promise.resolve())}
+      />
+    );
+
+    const start = container
+      .querySelectorAll("tbody tr")[18]
+      .querySelectorAll("td")[2];
+    fireEvent.mouseDown(start, { button: 0, clientX: 210, clientY: 440 });
+    // First move crosses the dead zone; the box only reaches its final size
+    // on the second, so a stale commit would apply the start cell alone.
+    fireEvent.mouseMove(document, { clientX: 230, clientY: 450 });
+    fireEvent.mouseMove(document, { clientX: 450, clientY: 500 });
+    fireEvent.mouseUp(document, { button: 0, clientX: 450, clientY: 500 });
+
+    await waitFor(() => {
+      expect(onBatchChange).toHaveBeenCalledTimes(1);
+    });
+
+    const cells = onBatchChange.mock.calls[0][0] as {
+      dayKey: string;
+      timeSlot: string;
+      state: string;
+    }[];
+    expect(cells.every((cell) => cell.state === "can-do")).toBe(true);
+    expect(cells.map((cell) => `${cell.dayKey}|${cell.timeSlot}`).sort()).toEqual(
+      [
+        "1|09:00",
+        "1|09:30",
+        "1|10:00",
+        "2|09:00",
+        "2|09:30",
+        "2|10:00",
+        "3|09:00",
+        "3|09:30",
+        "3|10:00",
+      ]
+    );
   });
 
   it("keeps profile icons ordered by profile ID when selection order changes", () => {

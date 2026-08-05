@@ -1,12 +1,11 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query, MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 
 const DEFAULT_DISCORD_DEBOUNCE_MS = 60 * 1000;
 const BATCH_SET_SELECTION_LIMIT = 500;
 const SELECTION_DELETE_BATCH_SIZE = 500;
-const SELECTIONS_BY_SCHEDULE_LIMIT = 5000;
 const DISCORD_LINK_NOTIFY_BATCH_SIZE = 100;
 
 const batchSelectionValidator = v.object({
@@ -1138,13 +1137,3 @@ export const continueClearForProfile = internalMutation({
   },
 });
 
-// Get all selections for a schedule
-export const getBySchedule = query({
-  args: { scheduleId: v.id("schedules") },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("selections")
-      .withIndex("by_schedule", (q) => q.eq("scheduleId", args.scheduleId))
-      .take(SELECTIONS_BY_SCHEDULE_LIMIT);
-  },
-});

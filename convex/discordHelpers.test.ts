@@ -16,6 +16,8 @@ import {
   getMissingDiscordInstallConfiguration,
   postChannelMessage,
   shouldPostNewDiscordMessage,
+  verifyDiscordSignature,
+  DISCORD_SIGNATURE_TOLERANCE_MS,
   SummaryInput,
 } from "./discordHelpers";
 
@@ -515,6 +517,144 @@ describe("Discord REST failures", () => {
     );
     expect(getDiscordRetryDelayMs(error as DiscordApiError, 0)).toBeNull();
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Discord interaction signatures", () => {
+  const bytesToHex = (bytes: ArrayBuffer): string =>
+    [...new Uint8Array(bytes)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+
+  const signedRequest = async (timestamp: string, body: string) => {
+    const keyPair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const signature = await crypto.subtle.sign(
+      { name: "Ed25519" },
+      keyPair.privateKey,
+      new TextEncoder().encode(timestamp + body),
+    );
+    return {
+      publicKeyHex: bytesToHex(
+        await crypto.subtle.exportKey("raw", keyPair.publicKey),
+      ),
+      signatureHex: bytesToHex(signature),
+    };
+  };
+
+  const signedAtSeconds = 1_800_000_000;
+  const signedAtMs = signedAtSeconds * 1000;
+  const timestamp = String(signedAtSeconds);
+  const body = JSON.stringify({ type: 1 });
+
+  it("accepts a fresh signature and rejects a tampered one", async () => {
+    const { publicKeyHex, signatureHex } = await signedRequest(timestamp, body);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      verifyDiscordSignature(
+        publicKeyHex,
+        signatureHex,
+        timestamp,
+        body,
+        signedAtMs,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      verifyDiscordSignature(
+        publicKeyHex,
+        signatureHex,
+        timestamp,
+        JSON.stringify({ type: 2 }),
+        signedAtMs,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("tolerates clock skew in both directions inside the window", async () => {
+    const { publicKeyHex, signatureHex } = await signedRequest(timestamp, body);
+    const skewMs = DISCORD_SIGNATURE_TOLERANCE_MS - 1_000;
+
+    await expect(
+      verifyDiscordSignature(
+        publicKeyHex,
+        signatureHex,
+        timestamp,
+        body,
+        signedAtMs + skewMs,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      verifyDiscordSignature(
+        publicKeyHex,
+        signatureHex,
+        timestamp,
+        body,
+        signedAtMs - skewMs,
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("rejects a replayed request once the freshness window has passed", async () => {
+    const { publicKeyHex, signatureHex } = await signedRequest(timestamp, body);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const staleMs = DISCORD_SIGNATURE_TOLERANCE_MS + 1_000;
+
+    await expect(
+      verifyDiscordSignature(
+        publicKeyHex,
+        signatureHex,
+        timestamp,
+        body,
+        signedAtMs + staleMs,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      verifyDiscordSignature(
+        publicKeyHex,
+        signatureHex,
+        timestamp,
+        body,
+        signedAtMs - staleMs,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("fails closed on malformed input", async () => {
+    const { publicKeyHex, signatureHex } = await signedRequest(timestamp, body);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    for (const badTimestamp of ["", "not-a-timestamp", "17e", "Infinity"]) {
+      await expect(
+        verifyDiscordSignature(
+          publicKeyHex,
+          signatureHex,
+          badTimestamp,
+          body,
+          signedAtMs,
+        ),
+      ).resolves.toBe(false);
+    }
+    await expect(
+      verifyDiscordSignature(
+        "zz",
+        signatureHex,
+        timestamp,
+        body,
+        signedAtMs,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      verifyDiscordSignature(
+        publicKeyHex,
+        "not-hex",
+        timestamp,
+        body,
+        signedAtMs,
+      ),
+    ).resolves.toBe(false);
   });
 });
 

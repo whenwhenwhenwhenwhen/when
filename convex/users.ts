@@ -1,9 +1,18 @@
 import { v } from "convex/values";
-import { MutationCtx, mutation, query } from "./_generated/server";
+import {
+  MutationCtx,
+  internalMutation,
+  mutation,
+  query,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 
 const PROFILE_MERGE_BATCH_SIZE = 100;
+// Documents relocated per transaction. A merge larger than this continues in a
+// scheduled follow-up, so a user with a long history cannot blow the Convex
+// per-transaction limit and permanently fail their own sign-in.
+const PROFILE_MERGE_DOC_BUDGET = 512;
 
 async function getAuthenticatedProfile(ctx: MutationCtx) {
   const identity = await ctx.auth.getUserIdentity();
@@ -38,28 +47,60 @@ async function getProfileForSettings(
   return anonymousProfile;
 }
 
+// An anonymous profile may only be claimed while it has no SSO owner. Without
+// this guard, anyone who learns another user's `anonymousId` could re-point
+// that profile's `authUserId` at their own Google account, or merge the
+// profile's data into their own and delete the original.
+async function findClaimableAnonymousProfile(
+  ctx: MutationCtx,
+  anonymousId: string | undefined
+): Promise<Doc<"userProfiles"> | null> {
+  if (!anonymousId) return null;
+
+  const profile = await ctx.db
+    .query("userProfiles")
+    .withIndex("by_anonymousId", (q) => q.eq("anonymousId", anonymousId))
+    .unique();
+
+  if (!profile || profile.authUserId) return null;
+  return profile;
+}
+
+// Relocates one profile's data onto another. Returns false when the work
+// budget ran out before the profile was drained, in which case the caller must
+// schedule `continueProfileMerge` and must not delete the source profile yet.
 async function moveProfileData(
   ctx: MutationCtx,
   fromProfileId: Id<"userProfiles">,
   toProfileId: Id<"userProfiles">
-) {
-  while (true) {
+): Promise<boolean> {
+  let budget = PROFILE_MERGE_DOC_BUDGET;
+  const nextBatchSize = () => Math.min(PROFILE_MERGE_BATCH_SIZE, budget);
+
+  while (budget > 0) {
     const selections = await ctx.db
       .query("selections")
       .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
-      .take(PROFILE_MERGE_BATCH_SIZE);
+      .take(nextBatchSize());
 
     if (selections.length === 0) break;
 
     for (const sel of selections) {
+      // Matching on the exception fields too: a base recurring selection and a
+      // dated exception occupy the same day/slot but are distinct rows, so the
+      // coarser index would treat one as a duplicate of the other and drop it.
       const existingSel = await ctx.db
         .query("selections")
-        .withIndex("by_profile_schedule_day_time", (q) =>
-          q
-            .eq("profileId", toProfileId)
-            .eq("scheduleId", sel.scheduleId)
-            .eq("dayKey", sel.dayKey)
-            .eq("timeSlot", sel.timeSlot)
+        .withIndex(
+          "by_profile_schedule_day_time_isException_exceptionDate",
+          (q) =>
+            q
+              .eq("profileId", toProfileId)
+              .eq("scheduleId", sel.scheduleId)
+              .eq("dayKey", sel.dayKey)
+              .eq("timeSlot", sel.timeSlot)
+              .eq("isException", sel.isException)
+              .eq("exceptionDate", sel.exceptionDate)
         )
         .first();
 
@@ -75,19 +116,22 @@ async function moveProfileData(
           exceptionDate: sel.exceptionDate,
           source: sel.source,
           externalEventId: sel.externalEventId,
+          calendarSourceId: sel.calendarSourceId,
         });
       }
       await ctx.db.delete(sel._id);
+      budget--;
     }
   }
+  if (budget <= 0) return false;
 
-  while (true) {
+  while (budget > 0) {
     const schedules = await ctx.db
       .query("schedules")
       .withIndex("by_creatorProfileId", (q) =>
         q.eq("creatorProfileId", fromProfileId)
       )
-      .take(PROFILE_MERGE_BATCH_SIZE);
+      .take(nextBatchSize());
 
     if (schedules.length === 0) break;
 
@@ -95,14 +139,16 @@ async function moveProfileData(
       await ctx.db.patch(sched._id, {
         creatorProfileId: toProfileId,
       });
+      budget--;
     }
   }
+  if (budget <= 0) return false;
 
-  while (true) {
+  while (budget > 0) {
     const blockedProfiles = await ctx.db
       .query("blockedProfiles")
       .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
-      .take(PROFILE_MERGE_BATCH_SIZE);
+      .take(nextBatchSize());
 
     if (blockedProfiles.length === 0) break;
 
@@ -120,14 +166,16 @@ async function moveProfileData(
       } else {
         await ctx.db.patch(blocked._id, { profileId: toProfileId });
       }
+      budget--;
     }
   }
+  if (budget <= 0) return false;
 
-  while (true) {
+  while (budget > 0) {
     const archives = await ctx.db
       .query("scheduleArchives")
       .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
-      .take(PROFILE_MERGE_BATCH_SIZE);
+      .take(nextBatchSize());
 
     if (archives.length === 0) break;
 
@@ -150,7 +198,57 @@ async function moveProfileData(
       } else {
         await ctx.db.patch(archive._id, { profileId: toProfileId });
       }
+      budget--;
     }
+  }
+  if (budget <= 0) return false;
+
+  // Reachable when the source was previously an SSO profile that unlinked:
+  // these tables are otherwise SSO-only, so a never-authenticated profile has
+  // nothing here.
+  while (budget > 0) {
+    const links = await ctx.db
+      .query("availabilityLinks")
+      .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
+      .take(nextBatchSize());
+
+    if (links.length === 0) break;
+
+    for (const link of links) {
+      const existing = await ctx.db
+        .query("availabilityLinks")
+        .withIndex("by_schedule_profile", (q) =>
+          q.eq("scheduleId", link.scheduleId).eq("profileId", toProfileId)
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.delete(link._id);
+      } else {
+        await ctx.db.patch(link._id, { profileId: toProfileId });
+      }
+      budget--;
+    }
+  }
+  if (budget <= 0) return false;
+
+  for (const table of [
+    "savedAvailabilities",
+    "calendarSources",
+  ] as const) {
+    while (budget > 0) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_profileId", (q) => q.eq("profileId", fromProfileId))
+        .take(nextBatchSize());
+
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        await ctx.db.patch(row._id, { profileId: toProfileId });
+        budget--;
+      }
+    }
+    if (budget <= 0) return false;
   }
 
   const [fromDiscordLink, toDiscordLink] = await Promise.all([
@@ -170,7 +268,54 @@ async function moveProfileData(
       await ctx.db.patch(fromDiscordLink._id, { profileId: toProfileId });
     }
   }
+
+  return true;
 }
+
+// Retires the drained profile, or retires just its credential and defers the
+// rest to a scheduled continuation when the merge did not fit in one
+// transaction. Either way the `anonymousId` stops working immediately.
+async function finishOrContinueMerge(
+  ctx: MutationCtx,
+  merged: boolean,
+  fromProfileId: Id<"userProfiles">,
+  toProfileId: Id<"userProfiles">
+) {
+  if (merged) {
+    await ctx.db.delete(fromProfileId);
+    return;
+  }
+
+  await ctx.db.patch(fromProfileId, { anonymousId: undefined });
+  await ctx.scheduler.runAfter(0, internal.users.continueProfileMerge, {
+    fromProfileId,
+    toProfileId,
+  });
+}
+
+// Hands the source profile to `moveProfileData` until it drains, then removes
+// it. The originating mutation retires the source's `anonymousId` before
+// scheduling this, so the profile is already unreachable by then.
+export const continueProfileMerge = internalMutation({
+  args: {
+    fromProfileId: v.id("userProfiles"),
+    toProfileId: v.id("userProfiles"),
+  },
+  handler: async (ctx, args) => {
+    const [from, to] = await Promise.all([
+      ctx.db.get(args.fromProfileId),
+      ctx.db.get(args.toProfileId),
+    ]);
+    if (!from || !to) return;
+
+    if (await moveProfileData(ctx, args.fromProfileId, args.toProfileId)) {
+      await ctx.db.delete(args.fromProfileId);
+      return;
+    }
+
+    await ctx.scheduler.runAfter(0, internal.users.continueProfileMerge, args);
+  },
+});
 
 // Get or create an anonymous user profile
 export const getOrCreateAnonymousProfile = mutation({
@@ -185,8 +330,15 @@ export const getOrCreateAnonymousProfile = mutation({
       .withIndex("by_anonymousId", (q) => q.eq("anonymousId", args.anonymousId))
       .unique();
 
-    if (existing) {
+    if (existing && !existing.authUserId) {
       return existing._id;
+    }
+
+    // A profile that carries both identifiers predates the upgrade path
+    // clearing `anonymousId`. The anonymous half is a stale credential for an
+    // SSO account, so retire it rather than handing back the linked profile.
+    if (existing) {
+      await ctx.db.patch(existing._id, { anonymousId: undefined });
     }
 
     return await ctx.db.insert("userProfiles", {
@@ -196,28 +348,6 @@ export const getOrCreateAnonymousProfile = mutation({
       weekStartDay: 0, // Sunday default
       dstNotifications: true,
     });
-  },
-});
-
-// Get profile by anonymous ID
-export const getProfileByAnonymousId = query({
-  args: { anonymousId: v.string() },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("userProfiles")
-      .withIndex("by_anonymousId", (q) => q.eq("anonymousId", args.anonymousId))
-      .unique();
-  },
-});
-
-// Get profile by auth user ID (tokenIdentifier)
-export const getProfileByAuthUserId = query({
-  args: { authUserId: v.string() },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("userProfiles")
-      .withIndex("by_authUserId", (q) => q.eq("authUserId", args.authUserId))
-      .unique();
   },
 });
 
@@ -331,8 +461,12 @@ export const updateProfile = mutation({
     const cleanUpdates: Record<string, unknown> = {};
     if (args.displayName !== undefined) cleanUpdates.displayName = args.displayName;
     if (args.timezone !== undefined) cleanUpdates.timezone = args.timezone;
-    if (args.weekStartDay !== undefined)
+    if (args.weekStartDay !== undefined) {
+      if (!Number.isInteger(args.weekStartDay) || args.weekStartDay < 0 || args.weekStartDay > 6) {
+        throw new Error("weekStartDay must be an integer from 0 to 6");
+      }
       cleanUpdates.weekStartDay = args.weekStartDay;
+    }
     if (args.dstNotifications !== undefined)
       cleanUpdates.dstNotifications = args.dstNotifications;
 
@@ -360,17 +494,18 @@ export const mergeAnonymousToAuth = mutation({
       .withIndex("by_authUserId", (q) => q.eq("authUserId", tokenIdentifier))
       .unique();
 
-    // Find anonymous profile
-    const anonProfile = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_anonymousId", (q) =>
-        q.eq("anonymousId", args.anonymousId)
-      )
-      .unique();
+    const anonProfile = await findClaimableAnonymousProfile(
+      ctx,
+      args.anonymousId
+    );
 
     if (existingAuthProfile && anonProfile) {
       // Both exist - merge anon selections into auth profile
-      await moveProfileData(ctx, anonProfile._id, existingAuthProfile._id);
+      const merged = await moveProfileData(
+        ctx,
+        anonProfile._id,
+        existingAuthProfile._id
+      );
 
       // Inherit anon display name if auth profile has no custom one
       if (anonProfile.displayName && !existingAuthProfile.displayName) {
@@ -386,8 +521,12 @@ export const mergeAnonymousToAuth = mutation({
         });
       }
 
-      // Delete anonymous profile
-      await ctx.db.delete(anonProfile._id);
+      await finishOrContinueMerge(
+        ctx,
+        merged,
+        anonProfile._id,
+        existingAuthProfile._id
+      );
 
       // Schedule background download of Google profile image into Convex storage
       if (profileImageUrl) {
@@ -400,9 +539,12 @@ export const mergeAnonymousToAuth = mutation({
 
       return existingAuthProfile._id;
     } else if (anonProfile) {
-      // Only anon exists - upgrade it to authenticated
+      // Only anon exists - upgrade it to authenticated. Dropping `anonymousId`
+      // is what retires the old credential; leaving it in place would keep it
+      // valid as a second, password-less way into the SSO account.
       await ctx.db.patch(anonProfile._id, {
         authUserId: tokenIdentifier,
+        anonymousId: undefined,
         email,
         profileImageUrl,
         displayName: anonProfile.displayName || displayName || "User",
@@ -463,19 +605,18 @@ export const ensureAuthProfile = mutation({
       .withIndex("by_authUserId", (q) => q.eq("authUserId", tokenIdentifier))
       .unique();
 
-    // Find anonymous profile if anonymousId provided
-    let anonProfile = args.anonymousId
-      ? await ctx.db
-          .query("userProfiles")
-          .withIndex("by_anonymousId", (q) =>
-            q.eq("anonymousId", args.anonymousId)
-          )
-          .unique()
-      : null;
+    const anonProfile = await findClaimableAnonymousProfile(
+      ctx,
+      args.anonymousId
+    );
 
     if (authProfile && anonProfile && authProfile._id !== anonProfile._id) {
       // Merge: move all anon data to auth profile
-      await moveProfileData(ctx, anonProfile._id, authProfile._id);
+      const merged = await moveProfileData(
+        ctx,
+        anonProfile._id,
+        authProfile._id
+      );
 
       // Inherit display name from anon if it was set
       if (anonProfile.displayName) {
@@ -491,7 +632,12 @@ export const ensureAuthProfile = mutation({
         });
       }
 
-      await ctx.db.delete(anonProfile._id);
+      await finishOrContinueMerge(
+        ctx,
+        merged,
+        anonProfile._id,
+        authProfile._id
+      );
 
       // Schedule background download of Google profile image into Convex storage
       if (profileImageUrl) {
@@ -503,9 +649,11 @@ export const ensureAuthProfile = mutation({
       }
       return authProfile._id;
     } else if (anonProfile && !authProfile) {
-      // Upgrade anon to auth
+      // Upgrade anon to auth. See mergeAnonymousToAuth: clearing `anonymousId`
+      // is what retires the old credential.
       await ctx.db.patch(anonProfile._id, {
         authUserId: tokenIdentifier,
+        anonymousId: undefined,
         email,
         profileImageUrl,
       });
@@ -579,6 +727,17 @@ export const unlinkSso = mutation({
     if (!profile) throw new Error("Profile not found");
     if (!profile.authUserId) throw new Error("Profile is not linked to SSO");
 
+    // Every `by_anonymousId` lookup uses `.unique()`, which throws when two
+    // profiles share an id. Taking a colliding id would therefore wedge the
+    // other profile's owner out of the app entirely.
+    const collision = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_anonymousId", (q) =>
+        q.eq("anonymousId", args.newAnonymousId)
+      )
+      .unique();
+    if (collision) throw new Error("Anonymous ID already in use");
+
     const ssoName = identity.name;
 
     // Clean up stored profile image from Convex storage
@@ -651,21 +810,28 @@ export const refreshProfileImageIfNeeded = mutation({
   },
 });
 
-// Get a profile by ID
-export const getProfile = query({
-  args: { profileId: v.id("userProfiles") },
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.profileId);
-  },
-});
-
-// Get multiple profiles by IDs
-export const getProfiles = query({
+// Public profile lookup by ID. `anonymousId` authenticates its profile, so raw
+// profile documents must never leave the server; callers that need to render
+// other participants get this reduced shape. `schedules.get` applies the same
+// projection for the profiles it embeds.
+export const getPublicProfiles = query({
   args: { profileIds: v.array(v.id("userProfiles")) },
   handler: async (ctx, args) => {
     const profiles = await Promise.all(
-      args.profileIds.map((id) => ctx.db.get(id))
+      args.profileIds.map(async (id) => {
+        const profile = await ctx.db.get(id);
+        if (!profile) return null;
+        const storedImageUrl = profile.profileImageStorageId
+          ? await ctx.storage.getUrl(profile.profileImageStorageId)
+          : null;
+        return {
+          _id: profile._id,
+          displayName: profile.displayName,
+          profileImageUrl: storedImageUrl ?? profile.profileImageUrl,
+          timezone: profile.timezone,
+        };
+      })
     );
-    return profiles.filter(Boolean);
+    return profiles.filter((p) => p !== null);
   },
 });

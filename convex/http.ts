@@ -9,6 +9,7 @@ import {
   verifyDiscordSignature,
 } from "./discordHelpers";
 import { getMissingDiscordPermissions } from "./discordPermissions";
+import { isSessionExpired } from "./authSessions";
 
 const http = httpRouter();
 
@@ -260,6 +261,18 @@ http.route({
       });
     }
 
+    // Expiry is enforced only after the signature check, so an unauthenticated
+    // caller learns nothing about whether a given uuid exists or is still live.
+    if (isSessionExpired(session, Date.now())) {
+      await ctx.runMutation(internal.authSessions.deleteBySessionToken, {
+        sessionToken: uuid,
+      });
+      return new Response(JSON.stringify({ error: "Session expired" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
     // HMAC verified — use the stored refresh token to get a new ID token
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -295,10 +308,86 @@ http.route({
       );
     }
 
+    await ctx.runMutation(internal.authSessions.touchSession, {
+      sessionToken: uuid,
+    });
+
     return new Response(JSON.stringify({ idToken: newTokens.id_token }), {
       status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// Sign-out
+//
+// Clearing client storage alone leaves the server-side session — and the Google
+// refresh token it unlocks — usable by anyone who captured the token. This
+// destroys the session row and asks Google to drop the grant as well.
+// ---------------------------------------------------------------------------
+
+http.route({
+  path: "/auth/signout",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const origin = process.env.SITE_URL!;
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "POST",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    const body = (await req.json().catch(() => ({}))) as {
+      sessionToken?: unknown;
+    };
+    const signedToken = body.sessionToken;
+
+    // Sign-out answers identically whether or not the token was real, so it
+    // cannot be used to probe which session tokens exist.
+    const ok = new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+
+    if (typeof signedToken !== "string" || signedToken.length === 0) return ok;
+
+    const dotIdx = signedToken.indexOf(".");
+    if (dotIdx < 0) return ok;
+    const uuid = signedToken.substring(0, dotIdx);
+
+    const session = await ctx.runQuery(
+      internal.authSessions.getBySessionToken,
+      { sessionToken: uuid },
+    );
+    if (!session) return ok;
+
+    // Requiring a valid signature stops an attacker who has only guessed or
+    // scraped a bare uuid from logging other people out.
+    const verifiedUuid = await verifyAndParseSessionToken(
+      signedToken,
+      session.googleUserId,
+    );
+    if (!verifiedUuid) return ok;
+
+    const revoked = await ctx.runMutation(internal.authSessions.revokeSession, {
+      sessionToken: uuid,
+    });
+
+    if (revoked) {
+      try {
+        await fetch("https://oauth2.googleapis.com/revoke", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ token: revoked.refreshToken }),
+        });
+      } catch {
+        // The local session is already gone, which is what actually gates
+        // access here; Google expires the orphaned grant on its own.
+      }
+    }
+
+    return ok;
   }),
 });
 
@@ -421,6 +510,21 @@ http.route({
 // CORS preflight for the refresh endpoint
 http.route({
   path: "/auth/refresh",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": process.env.SITE_URL!,
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }),
+});
+
+http.route({
+  path: "/auth/signout",
   method: "OPTIONS",
   handler: httpAction(async () => {
     return new Response(null, {

@@ -12,6 +12,7 @@ import {
   TimezoneCell,
 } from "../lib/timezone";
 import { getDstNotice } from "../lib/dst";
+import { useToast } from "../hooks/useToast";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
 
@@ -100,6 +101,20 @@ interface Props {
 
 const DEAD_ZONE_PX = 8;
 const TIME_SLOTS = generateTimeSlots();
+const CELL_ERROR = "Couldn't save your availability. Please try again.";
+const SLOT_ERROR = "Couldn't update the schedule. Please try again.";
+
+interface CellParticipant {
+  profileId: string;
+  state: "can-do" | "cant-do" | "maybe";
+}
+
+interface SelectionBox {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
 
 // Generate a consistent color for a user based on their ID
 function getUserColor(userId: string): string {
@@ -160,16 +175,16 @@ export function WeeklyGrid({
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
+  const { showToast } = useToast();
 
-  // Drag state
+  // Drag state. The document listeners are registered once per drag, so the
+  // commit path must read the live box from refs rather than from the state
+  // captured when the listeners were attached.
   const [isDragging, setIsDragging] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [selectionBox, setSelectionBox] = useState<{
-    startX: number;
-    startY: number;
-    currentX: number;
-    currentY: number;
-  } | null>(null);
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
+  const dragActiveRef = useRef(false);
+  const selectionBoxRef = useRef<SelectionBox | null>(null);
   const dragStartRef = useRef<{
     x: number;
     y: number;
@@ -180,6 +195,28 @@ export function WeeklyGrid({
   // For limit mode: stores "allow" or "dont-allow"
   // For lock mode: stores "lock" or "unlock"
   const dragActionRef = useRef<string>("can-do");
+
+  const setDragActiveState = useCallback((active: boolean) => {
+    dragActiveRef.current = active;
+    setDragActive(active);
+  }, []);
+
+  const setSelectionBoxState = useCallback((box: SelectionBox | null) => {
+    selectionBoxRef.current = box;
+    setSelectionBox(box);
+  }, []);
+
+  // The grid renders straight from the server's selections, so a rejected
+  // change reverts on its own and only needs reporting.
+  const commitChange = useCallback(
+    (change: Promise<void>, message: string) => {
+      void change.catch((err) => {
+        console.error(message, err);
+        showToast(message, "error");
+      });
+    },
+    [showToast]
+  );
 
   // Current time for the indicator
   const [now, setNow] = useState(DateTime.now().setZone(userTimezone));
@@ -192,13 +229,16 @@ export function WeeklyGrid({
     return () => clearInterval(interval);
   }, [userTimezone]);
 
-  // Calculate week dates
-  const referenceDate = DateTime.now()
-    .setZone(userTimezone)
-    .plus({ weeks: weekOffset });
+  // Calculate week dates. The reference date keeps a stable identity for as
+  // long as it addresses the same day: every map below converts timezones per
+  // selection and must stay off the drag render path.
+  const referenceDate = useMemo(
+    () => DateTime.now().setZone(userTimezone).plus({ weeks: weekOffset }),
+    [userTimezone, weekOffset, now.toISODate()]
+  );
   const weekDates = useMemo(
     () => getWeekDates(referenceDate, weekStartDay),
-    [referenceDate.toISODate(), weekStartDay]
+    [referenceDate, weekStartDay]
   );
   const dayNames = getDayNames(weekStartDay);
 
@@ -264,32 +304,36 @@ export function WeeklyGrid({
     weekStartDay,
   ]);
 
-  // Build a map of all users' selections for each cell (for profile icons)
-  const allCellSelections = useMemo(() => {
-    const map = new Map<
-      string,
-      { profileId: string; state: "can-do" | "cant-do" | "maybe" }[]
-    >();
+  // Build maps of every participant's selections for each cell (for profile
+  // icons). Base and exception rows are kept apart because an exception only
+  // overrides the participant who owns it — merging them into one map would
+  // apply one participant's exception to everybody in the cell.
+  const { baseCellSelections, exceptionCellSelections } = useMemo(() => {
+    const base = new Map<string, CellParticipant[]>();
+    const exceptions = new Map<string, CellParticipant[]>();
 
     for (const sel of schedule.selections) {
-      const { key: cellKey } = getSelectionViewerCell(
+      const { key: cellKey, cell } = getSelectionViewerCell(
         schedule.type,
         sel,
         userTimezone,
         referenceDate,
         weekStartDay
       );
+      const map = cell.isException ? exceptions : base;
 
       const existing = map.get(cellKey) || [];
       existing.push({ profileId: sel.profileId, state: sel.state });
       map.set(cellKey, existing);
     }
 
-    for (const selections of map.values()) {
-      selections.sort((a, b) => a.profileId.localeCompare(b.profileId));
+    for (const map of [base, exceptions]) {
+      for (const selections of map.values()) {
+        selections.sort((a, b) => a.profileId.localeCompare(b.profileId));
+      }
     }
 
-    return map;
+    return { baseCellSelections: base, exceptionCellSelections: exceptions };
   }, [
     schedule.selections,
     userTimezone,
@@ -348,23 +392,64 @@ export function WeeklyGrid({
     weekStartDay,
   ]);
 
-  // Get the cell key for a given day/time index
-  const getCellKey = useCallback(
+  // Key of the recurring weekday (or one-off date) row behind a grid cell
+  const getBaseCellKey = useCallback(
     (dayIndex: number, timeIndex: number): string => {
       if (schedule.type === "one-off") {
-        const date = weekDates[dayIndex];
-        return `${date.toISODate()}|${TIME_SLOTS[timeIndex]}`;
-      } else {
-        const date = weekDates[dayIndex];
-        const dow = (weekStartDay + dayIndex) % 7;
-        const excKey = `exc:${date.toISODate()}|${TIME_SLOTS[timeIndex]}`;
+        return `${weekDates[dayIndex].toISODate()}|${TIME_SLOTS[timeIndex]}`;
+      }
+      const dow = (weekStartDay + dayIndex) % 7;
+      return `${dow}|${TIME_SLOTS[timeIndex]}`;
+    },
+    [schedule.type, weekDates, weekStartDay]
+  );
+
+  // Key of the exception row that would override the base row on this date
+  const getExceptionCellKey = useCallback(
+    (dayIndex: number, timeIndex: number): string =>
+      `exc:${weekDates[dayIndex].toISODate()}|${TIME_SLOTS[timeIndex]}`,
+    [weekDates]
+  );
+
+  // Get the cell key the edited profile's own selection lives at
+  const getCellKey = useCallback(
+    (dayIndex: number, timeIndex: number): string => {
+      if (schedule.type === "recurring") {
+        const excKey = getExceptionCellKey(dayIndex, timeIndex);
         if (myCellStates.has(excKey)) {
           return excKey;
         }
-        return `${dow}|${TIME_SLOTS[timeIndex]}`;
       }
+      return getBaseCellKey(dayIndex, timeIndex);
     },
-    [schedule.type, weekDates, weekStartDay, myCellStates]
+    [schedule.type, getBaseCellKey, getExceptionCellKey, myCellStates]
+  );
+
+  // Resolve every participant's effective state for a cell: their exception on
+  // this date if they have one, otherwise their recurring selection.
+  const getCellParticipants = useCallback(
+    (dayIndex: number, timeIndex: number): CellParticipant[] => {
+      const base =
+        baseCellSelections.get(getBaseCellKey(dayIndex, timeIndex)) || [];
+      if (schedule.type === "one-off") return base;
+
+      const exceptions =
+        exceptionCellSelections.get(
+          getExceptionCellKey(dayIndex, timeIndex)
+        ) || [];
+      if (exceptions.length === 0) return base;
+
+      const overridden = new Set(exceptions.map((s) => s.profileId));
+      return [...base.filter((s) => !overridden.has(s.profileId)), ...exceptions]
+        .sort((a, b) => a.profileId.localeCompare(b.profileId));
+    },
+    [
+      schedule.type,
+      baseCellSelections,
+      exceptionCellSelections,
+      getBaseCellKey,
+      getExceptionCellKey,
+    ]
   );
 
   // Get cell state for a given day/time index
@@ -577,22 +662,34 @@ export function WeeklyGrid({
         if (allowMode === "auto") {
           // Toggle
           if (cellIsDisallowed) {
+            commitChange(
+              onCreatorSlotChange(
+                currentSlots.filter(
+                  (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
+                )
+              ),
+              SLOT_ERROR
+            );
+          } else {
+            commitChange(
+              onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]),
+              SLOT_ERROR
+            );
+          }
+        } else if (allowMode === "allow" && cellIsDisallowed) {
+          commitChange(
             onCreatorSlotChange(
               currentSlots.filter(
                 (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
               )
-            );
-          } else {
-            onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]);
-          }
-        } else if (allowMode === "allow" && cellIsDisallowed) {
-          onCreatorSlotChange(
-            currentSlots.filter(
-              (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
-            )
+            ),
+            SLOT_ERROR
           );
         } else if (allowMode === "dont-allow" && !cellIsDisallowed) {
-          onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]);
+          commitChange(
+            onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]),
+            SLOT_ERROR
+          );
         }
         return;
       }
@@ -605,13 +702,19 @@ export function WeeklyGrid({
 
         // Toggle lock state
         if (cellIsLocked) {
-          onCreatorSlotChange(
-            currentSlots.filter(
-              (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
-            )
+          commitChange(
+            onCreatorSlotChange(
+              currentSlots.filter(
+                (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
+              )
+            ),
+            SLOT_ERROR
           );
         } else {
-          onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]);
+          commitChange(
+            onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]),
+            SLOT_ERROR
+          );
         }
         return;
       }
@@ -638,19 +741,23 @@ export function WeeklyGrid({
       } =
         toStorageKeys(dayIndex, timeIndex);
       const scheduleCell = toScheduleKeys(dayIndex, timeIndex);
-      onCellChange(
-        dayKey,
-        timeSlot,
-        newState,
-        isException,
-        exceptionDate,
-        storageTimezone,
-        scheduleCell.dayKey,
-        scheduleCell.timeSlot
+      commitChange(
+        onCellChange(
+          dayKey,
+          timeSlot,
+          newState,
+          isException,
+          exceptionDate,
+          storageTimezone,
+          scheduleCell.dayKey,
+          scheduleCell.timeSlot
+        ),
+        CELL_ERROR
       );
     },
     [
       canInteract,
+      commitChange,
       isCreator,
       canLock,
       creatorMode,
@@ -685,7 +792,7 @@ export function WeeklyGrid({
         timeIndex,
       };
       setIsDragging(true);
-      setDragActive(false);
+      setDragActiveState(false);
 
       // Determine drag action based on mode
       if (isCreator && creatorMode === "limit") {
@@ -715,7 +822,7 @@ export function WeeklyGrid({
         }
       }
 
-      setSelectionBox({
+      setSelectionBoxState({
         startX: e.clientX,
         startY: e.clientY,
         currentX: e.clientX,
@@ -734,8 +841,45 @@ export function WeeklyGrid({
       allowMode,
       isCellDisallowed,
       isCellLocked,
+      setDragActiveState,
+      setSelectionBoxState,
     ]
   );
+
+  // Get cells that overlap with the selection box
+  const getSelectedCells = useCallback((): {
+    dayIndex: number;
+    timeIndex: number;
+  }[] => {
+    const box = selectionBoxRef.current;
+    if (!box || !dragActiveRef.current) return [];
+
+    const rect = {
+      left: Math.min(box.startX, box.currentX),
+      top: Math.min(box.startY, box.currentY),
+      right: Math.max(box.startX, box.currentX),
+      bottom: Math.max(box.startY, box.currentY),
+    };
+
+    const cells: { dayIndex: number; timeIndex: number }[] = [];
+
+    cellRefs.current.forEach((el, key) => {
+      const cellRect = el.getBoundingClientRect();
+      const overlapX =
+        Math.min(rect.right, cellRect.right) -
+        Math.max(rect.left, cellRect.left);
+      const overlapY =
+        Math.min(rect.bottom, cellRect.bottom) -
+        Math.max(rect.top, cellRect.top);
+
+      if (overlapX > DEAD_ZONE_PX && overlapY > DEAD_ZONE_PX) {
+        const [d, t] = key.split(",").map(Number);
+        cells.push({ dayIndex: d, timeIndex: t });
+      }
+    });
+
+    return cells;
+  }, []);
 
   useEffect(() => {
     if (!isDragging) return;
@@ -746,31 +890,36 @@ export function WeeklyGrid({
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
       if (Math.sqrt(dx * dx + dy * dy) > DEAD_ZONE_PX) {
-        setDragActive(true);
+        setDragActiveState(true);
       }
 
-      setSelectionBox((prev) =>
-        prev ? { ...prev, currentX: e.clientX, currentY: e.clientY } : null
-      );
+      const box = selectionBoxRef.current;
+      if (box) {
+        setSelectionBoxState({
+          ...box,
+          currentX: e.clientX,
+          currentY: e.clientY,
+        });
+      }
     };
 
     const handleMouseUp = (e: MouseEvent) => {
       if (e.button === 2) {
         // Right click cancels
         setIsDragging(false);
-        setSelectionBox(null);
-        setDragActive(false);
+        setSelectionBoxState(null);
+        setDragActiveState(false);
         dragStartRef.current = null;
         return;
       }
 
-      if (!dragActive && dragStartRef.current) {
+      if (!dragActiveRef.current && dragStartRef.current) {
         // Single click
         handleSingleCellToggle(
           dragStartRef.current.dayIndex,
           dragStartRef.current.timeIndex
         );
-      } else if (dragActive) {
+      } else if (dragActiveRef.current) {
         // Drag complete — collect selected cells, filtering in the schedule's
         // timezone so boundary days work correctly for remote viewers.
         const selectedCells = getSelectedCells().filter((cell) =>
@@ -801,7 +950,7 @@ export function WeeklyGrid({
                 if (idx !== -1) currentSlots.splice(idx, 1);
               }
             }
-            onCreatorSlotChange(currentSlots);
+            commitChange(onCreatorSlotChange(currentSlots), SLOT_ERROR);
           } else if (canLock && creatorMode === "lock") {
             // Lock mode: filter out disallowed cells first
             const allowedCells = selectedCells.filter(
@@ -826,7 +975,7 @@ export function WeeklyGrid({
                 if (idx !== -1) currentSlots.splice(idx, 1);
               }
             }
-            onCreatorSlotChange(currentSlots);
+            commitChange(onCreatorSlotChange(currentSlots), SLOT_ERROR);
           } else {
             // Regular / nominate mode: filter out disallowed cells (creators in nominate mode can override)
             const allowedCells = (isCreator && creatorMode === "nominate")
@@ -860,35 +1009,33 @@ export function WeeklyGrid({
               };
             });
             if (batchSelections.length > 0) {
-              onBatchChange(batchSelections);
+              commitChange(onBatchChange(batchSelections), CELL_ERROR);
             }
           }
         }
       }
 
       setIsDragging(false);
-      setSelectionBox(null);
-      setDragActive(false);
+      setSelectionBoxState(null);
+      setDragActiveState(false);
       dragStartRef.current = null;
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setIsDragging(false);
-        setSelectionBox(null);
-        setDragActive(false);
+        setSelectionBoxState(null);
+        setDragActiveState(false);
         dragStartRef.current = null;
       }
     };
 
     const handleContextMenu = (e: Event) => {
-      if (isDragging) {
-        e.preventDefault();
-        setIsDragging(false);
-        setSelectionBox(null);
-        setDragActive(false);
-        dragStartRef.current = null;
-      }
+      e.preventDefault();
+      setIsDragging(false);
+      setSelectionBoxState(null);
+      setDragActiveState(false);
+      dragStartRef.current = null;
     };
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -904,8 +1051,11 @@ export function WeeklyGrid({
     };
   }, [
     isDragging,
-    dragActive,
+    commitChange,
+    getSelectedCells,
     handleSingleCellToggle,
+    setDragActiveState,
+    setSelectionBoxState,
     toStorageKeys,
     toScheduleKeys,
     onBatchChange,
@@ -919,40 +1069,6 @@ export function WeeklyGrid({
     schedule.disallowedSlots,
     schedule.lockedSlots,
   ]);
-
-  // Get cells that overlap with the selection box
-  const getSelectedCells = useCallback((): {
-    dayIndex: number;
-    timeIndex: number;
-  }[] => {
-    if (!selectionBox || !dragActive) return [];
-
-    const rect = {
-      left: Math.min(selectionBox.startX, selectionBox.currentX),
-      top: Math.min(selectionBox.startY, selectionBox.currentY),
-      right: Math.max(selectionBox.startX, selectionBox.currentX),
-      bottom: Math.max(selectionBox.startY, selectionBox.currentY),
-    };
-
-    const cells: { dayIndex: number; timeIndex: number }[] = [];
-
-    cellRefs.current.forEach((el, key) => {
-      const cellRect = el.getBoundingClientRect();
-      const overlapX =
-        Math.min(rect.right, cellRect.right) -
-        Math.max(rect.left, cellRect.left);
-      const overlapY =
-        Math.min(rect.bottom, cellRect.bottom) -
-        Math.max(rect.top, cellRect.top);
-
-      if (overlapX > DEAD_ZONE_PX && overlapY > DEAD_ZONE_PX) {
-        const [d, t] = key.split(",").map(Number);
-        cells.push({ dayIndex: d, timeIndex: t });
-      }
-    });
-
-    return cells;
-  }, [selectionBox, dragActive]);
 
   // Check if a cell is within the active selection box
   const isCellInDragSelection = useCallback(
@@ -1100,7 +1216,10 @@ export function WeeklyGrid({
                   const inRange = isCellInDateRange(dayIndex, timeIndex);
                   const myState = getCellState(dayIndex, timeIndex);
                   const cellKey = getCellKey(dayIndex, timeIndex);
-                  const otherSelections = allCellSelections.get(cellKey) || [];
+                  const cellParticipants = getCellParticipants(
+                    dayIndex,
+                    timeIndex
+                  );
                   const cellDisallowed = isCellDisallowed(dayIndex, timeIndex);
                   const cellLocked = isCellLocked(dayIndex, timeIndex);
                   const cellCalendarSynced = calendarSyncedCells.has(cellKey);
@@ -1189,13 +1308,13 @@ export function WeeklyGrid({
                         />
                       )}
 
-                      {/* Profile icons for other users */}
-                      {otherSelections.length > 0 && (
+                      {/* Profile icons for every participant in this cell */}
+                      {cellParticipants.length > 0 && (
                         <div className={styles.profileCellContent}>
                           {(
                             ["can-do", "cant-do", "maybe"] as const
                           ).map((state) => {
-                            const stateSelections = otherSelections.filter(
+                            const stateSelections = cellParticipants.filter(
                               (s) => s.state === state
                             );
                             if (stateSelections.length === 0) return null;

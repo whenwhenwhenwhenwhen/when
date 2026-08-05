@@ -1,4 +1,4 @@
-import { DateTime, IANAZone } from "luxon";
+import { DateTime } from "luxon";
 
 export type ScheduleType = "one-off" | "recurring";
 
@@ -207,26 +207,6 @@ export function getDayNames(startDay: number = 0): string[] {
 }
 
 /**
- * Get full day names starting from the configured start day.
- */
-export function getFullDayNames(startDay: number = 0): string[] {
-  const allDays = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ];
-  const result: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    result.push(allDays[(startDay + i) % 7]);
-  }
-  return result;
-}
-
-/**
  * Get the dates for a week starting from a reference date and start day.
  */
 export function getWeekDates(
@@ -243,13 +223,6 @@ export function getWeekDates(
     dates.push(weekStart.plus({ days: i }));
   }
   return dates;
-}
-
-/**
- * Check if a given IANA timezone is valid.
- */
-export function isValidTimezone(tz: string): boolean {
-  return IANAZone.isValidZone(tz);
 }
 
 /**

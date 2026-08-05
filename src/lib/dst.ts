@@ -66,27 +66,3 @@ export function getDstNotice(
   return null;
 }
 
-/**
- * For a recurring schedule, determine the actual time a slot would be at
- * on a specific date, accounting for DST.
- *
- * This is important because recurring schedules store "wall clock" time,
- * but the actual UTC offset changes with DST.
- */
-export function resolveRecurringSlotForDate(
-  dayOfWeek: number,
-  time: string,
-  timezone: string,
-  specificDate: DateTime
-): DateTime {
-  const [hours, minutes] = time.split(":").map(Number);
-
-  return specificDate
-    .setZone(timezone)
-    .set({
-      hour: hours,
-      minute: minutes,
-      second: 0,
-      millisecond: 0,
-    });
-}

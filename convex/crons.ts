@@ -18,6 +18,13 @@ crons.interval(
 );
 
 crons.interval(
+  "auth-session-cleanup",
+  { hours: 6 },
+  internal.authSessions.cleanupExpiredSessions,
+  {}
+);
+
+crons.interval(
   "discord-install-session-cleanup",
   { hours: 1 },
   internal.discord.cleanupExpiredInstallSessions,

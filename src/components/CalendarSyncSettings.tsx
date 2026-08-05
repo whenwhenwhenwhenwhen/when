@@ -234,8 +234,11 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
                   </span>
                 )}
                 {googleSource.lastSyncStatus === "success" && (
-                  <span className={styles.calendarStatusOk}>
-                    (ok)
+                  <span
+                    className={styles.calendarStatusOk}
+                    title={googleSource.lastSyncError}
+                  >
+                    {googleSource.lastSyncError ? "(partial)" : "(ok)"}
                   </span>
                 )}
               </div>
@@ -301,8 +304,11 @@ export function CalendarSyncSettings({ profileId, userEmail }: Props) {
               </span>
             )}
             {icsSource.lastSyncStatus === "success" && (
-              <span className={styles.calendarStatusOk}>
-                (ok)
+              <span
+                className={styles.calendarStatusOk}
+                title={icsSource.lastSyncError}
+              >
+                {icsSource.lastSyncError ? "(partial)" : "(ok)"}
               </span>
             )}
           </div>

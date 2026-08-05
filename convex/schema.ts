@@ -63,7 +63,6 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_creatorProfileId", ["creatorProfileId"])
-    .index("by_createdAt", ["createdAt"])
     .index("by_type_and_createdAt", ["type", "createdAt"]),
 
   // Blocked profiles per schedule (creator can block users from participating)
@@ -118,18 +117,16 @@ export default defineSchema({
     // Calendar sync metadata
     source: v.optional(v.union(v.literal("manual"), v.literal("calendar"))),
     externalEventId: v.optional(v.string()),
+    // Which calendar source produced this row. Scopes stale-row cleanup so two
+    // sources (e.g. Google + ICS) cannot delete each other's synced selections.
+    // Legacy rows predate this field and are adopted by the next sync to run.
+    calendarSourceId: v.optional(v.id("calendarSources")),
   })
     .index("by_schedule", ["scheduleId"])
     .index("by_profileId", ["profileId"])
     .index("by_schedule_profile", ["scheduleId", "profileId"])
     .index("by_schedule_profile_source", ["scheduleId", "profileId", "source"])
     .index("by_profileId_source", ["profileId", "source"])
-    .index("by_profile_schedule_day_time", [
-      "profileId",
-      "scheduleId",
-      "dayKey",
-      "timeSlot",
-    ])
     .index("by_profile_schedule_day_time_isException_exceptionDate", [
       "profileId",
       "scheduleId",
@@ -137,8 +134,7 @@ export default defineSchema({
       "timeSlot",
       "isException",
       "exceptionDate",
-    ])
-    .index("by_schedule_day_time", ["scheduleId", "dayKey", "timeSlot"]),
+    ]),
 
   // Saved weekly availabilities (SSO users only)
   savedAvailabilities: defineTable({
@@ -176,9 +172,17 @@ export default defineSchema({
     refreshToken: v.string(),
     googleUserId: v.string(),
     createdAt: v.number(),
+    // Absolute deadline: the session dies here no matter how actively it is
+    // used. Optional only so rows created before expiry existed still validate;
+    // those are treated as createdAt + SESSION_ABSOLUTE_TTL_MS.
+    expiresAt: v.optional(v.number()),
+    // Last successful refresh, for the idle timeout. Missing means never
+    // refreshed since creation, so createdAt stands in.
+    lastUsedAt: v.optional(v.number()),
   })
     .index("by_sessionToken", ["sessionToken"])
-    .index("by_googleUserId", ["googleUserId"]),
+    .index("by_googleUserId", ["googleUserId"])
+    .index("by_expiresAt", ["expiresAt"]),
 
   // External calendar sources (Google Calendar or ICS URLs)
   calendarSources: defineTable({
@@ -222,6 +226,7 @@ export default defineSchema({
     isException: v.optional(v.boolean()),
     exceptionDate: v.optional(v.string()),
   })
+    .index("by_scheduleId", ["scheduleId"])
     .index("by_profile_schedule", ["profileId", "scheduleId"])
     .index("by_profile_event", ["profileId", "externalEventId"])
     .index("by_profile_schedule_dayKey_timeSlot", [

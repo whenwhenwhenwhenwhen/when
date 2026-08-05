@@ -1,0 +1,65 @@
+name: Dependency report
+
+on:
+  schedule:
+    # Mondays, ahead of the Dependabot run so the report reflects what is
+    # still outstanding after the bot's cooldown windows.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  outdated:
+    name: Report outdated dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Report outdated dependencies
+        run: |
+          {
+            echo "## Outdated dependencies"
+            echo
+            # `pnpm outdated` exits non-zero when anything is behind, which is
+            # the normal case for a report rather than a failure.
+            if pnpm outdated --format list > outdated.txt 2>&1; then
+              echo "Everything is up to date."
+            else
+              echo '```'
+              cat outdated.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Audit for known vulnerabilities
+        run: |
+          {
+            echo
+            echo "## Security audit"
+            echo
+            if pnpm audit --prod > audit.txt 2>&1; then
+              echo "No known vulnerabilities in production dependencies."
+            else
+              echo '```'
+              cat audit.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -207,12 +207,3 @@ insert("selections", {
   timezone: userTimezone,
   state: "can-do",
 });
-
-// Export IDs so they can be referenced if needed
-export { designerProfileId, aliceProfileId, bobProfileId };
-export {
-  recurringScheduleId,
-  oneOffScheduleId,
-  unlistedScheduleId,
-  endedScheduleId,
-};
