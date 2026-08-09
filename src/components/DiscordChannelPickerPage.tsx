@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Header } from "./Header";
-import { useGoogleAuth } from "../lib/googleAuth";
+import { useGoogleAuth } from "../lib/authClient";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import {
   getDiscordInstallErrorMessage,
@@ -24,7 +24,7 @@ const DISCORD_INSTALL_NONCE_KEY = "whengames_discord_install_session";
 export function DiscordChannelPickerPage() {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useGoogleAuth();
-  const { anonymousId } = useAnonymousUser();
+  const { anonymousClaim } = useAnonymousUser();
   const params = new URLSearchParams(window.location.search);
   const sessionToken = params.get("session");
   const error = params.get("error");
@@ -44,9 +44,9 @@ export function DiscordChannelPickerPage() {
     setTokenValidated(stored === sessionToken);
   }, [sessionToken]);
 
-  const ownerReady = !authLoading && (isAuthenticated || !!anonymousId);
+  const ownerReady = !authLoading && (isAuthenticated || !!anonymousClaim);
   const ownerArgs = {
-    anonymousId: isAuthenticated ? undefined : anonymousId || undefined,
+    anonymousClaim: isAuthenticated ? undefined : anonymousClaim || undefined,
   };
 
   const session = useQuery(

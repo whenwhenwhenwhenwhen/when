@@ -7,7 +7,9 @@ import { AuthProfileSync } from "./AuthProfileSync";
 
 const mocks = vi.hoisted(() => ({
   ensureProfile: vi.fn(() => Promise.resolve("profile-id")),
+  clearAnonymousClaim: vi.fn(),
 }));
+const CLAIM = "a".repeat(64);
 
 function createMemoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -32,6 +34,11 @@ vi.mock("../hooks/useTimezone", () => ({
   useTimezone: () => ({ timezone: "Australia/Melbourne" }),
 }));
 
+vi.mock("../lib/authClient", () => ({
+  getOrCreateAnonymousClaim: () => CLAIM,
+  clearAnonymousClaim: mocks.clearAnonymousClaim,
+}));
+
 describe("AuthProfileSync", () => {
   beforeEach(() => {
     Object.defineProperty(globalThis, "localStorage", {
@@ -39,11 +46,10 @@ describe("AuthProfileSync", () => {
       value: createMemoryStorage(),
     });
     mocks.ensureProfile.mockClear();
+    mocks.clearAnonymousClaim.mockClear();
   });
 
-  it("includes the stored anonymous identity in the first authenticated sync", async () => {
-    localStorage.setItem("whengames_anonymous_id", "mobile-anonymous-id");
-
+  it("upgrades the module-owned anonymous claim on the first authenticated sync", async () => {
     render(
       <AnonymousUserProvider>
         <AuthProfileSync />
@@ -54,8 +60,9 @@ describe("AuthProfileSync", () => {
       expect(mocks.ensureProfile).toHaveBeenCalledTimes(1);
     });
     expect(mocks.ensureProfile).toHaveBeenCalledWith({
-      anonymousId: "mobile-anonymous-id",
+      anonymousClaim: CLAIM,
       timezone: "Australia/Melbourne",
     });
+    expect(mocks.clearAnonymousClaim).toHaveBeenCalledTimes(1);
   });
 });

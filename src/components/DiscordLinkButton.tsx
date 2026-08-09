@@ -12,7 +12,7 @@ interface Props {
   scheduleId: Id<"schedules">;
   scheduleType: "one-off" | "recurring";
   profileId: Id<"userProfiles"> | null;
-  anonymousId?: string;
+  anonymousClaim?: string;
   isCreator: boolean;
   showLinks?: boolean;
   showLinkButton?: boolean;
@@ -51,7 +51,7 @@ export function DiscordLinkButton({
   scheduleId,
   scheduleType,
   profileId,
-  anonymousId,
+  anonymousClaim,
   isCreator,
   showLinks = true,
   showLinkButton = true,
@@ -114,7 +114,7 @@ export function DiscordLinkButton({
 
       const sessionToken = await createInstallSession({
         scheduleId,
-        anonymousId,
+        anonymousClaim,
       });
       sessionStorage.setItem(DISCORD_INSTALL_NONCE_KEY, sessionToken);
 
@@ -140,7 +140,7 @@ export function DiscordLinkButton({
   }, [
     scheduleId,
     profileId,
-    anonymousId,
+    anonymousClaim,
     createInstallSession,
     getInstallReadiness,
   ]);
@@ -148,9 +148,9 @@ export function DiscordLinkButton({
   const handleUnlink = useCallback(
     async (linkId: Id<"scheduleDiscordLinks">) => {
       if (!profileId) return;
-      await unlink({ linkId, anonymousId });
+      await unlink({ linkId, anonymousClaim });
     },
-    [profileId, anonymousId, unlink]
+    [profileId, anonymousClaim, unlink]
   );
 
   const handlePolicyChange = useCallback(
@@ -164,7 +164,7 @@ export function DiscordLinkButton({
         await setNewMessageAfter({
           linkId,
           newMessageAfterMs: value === "default" ? null : Number(value),
-          anonymousId,
+          anonymousClaim,
         });
       } catch (error) {
         console.error("Could not update Discord message policy", error);
@@ -173,7 +173,7 @@ export function DiscordLinkButton({
         setSavingPolicyFor(null);
       }
     },
-    [anonymousId, profileId, setNewMessageAfter],
+    [anonymousClaim, profileId, setNewMessageAfter],
   );
 
   const handleDstNotificationsChange = useCallback(
@@ -184,7 +184,7 @@ export function DiscordLinkButton({
         await setDstChangeNotifications({
           linkId,
           enabled,
-          anonymousId,
+          anonymousClaim,
         });
       } catch (error) {
         console.error("Could not update Discord DST notifications", error);
@@ -193,7 +193,7 @@ export function DiscordLinkButton({
         setSavingDstFor(null);
       }
     },
-    [anonymousId, profileId, setDstChangeNotifications],
+    [anonymousClaim, profileId, setDstChangeNotifications],
   );
 
   const hasLinks = links && links.length > 0;

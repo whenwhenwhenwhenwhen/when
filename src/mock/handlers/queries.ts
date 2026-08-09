@@ -5,6 +5,7 @@
  */
 
 import * as store from "../store";
+import { identityIdForClaim } from "../identity";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Args = Record<string, any>;
@@ -19,11 +20,19 @@ function currentUserProfile(args: Args) {
   const profiles = store.query("userProfiles");
 
   // Anonymous path (no auth in design mode)
-  if (args.anonymousId) {
-    const profile = profiles.find((p) => p.anonymousId === args.anonymousId);
+  if (args.anonymousClaim) {
+    const profile = profiles.find(
+      (p) => p.identityId === identityIdForClaim(args.anonymousClaim),
+    );
     if (profile) {
       return {
-        ...profile,
+        _id: profile._id,
+        _creationTime: profile._creationTime,
+        displayName: profile.displayName,
+        profileImageUrl: profile.profileImageUrl,
+        timezone: profile.timezone,
+        weekStartDay: profile.weekStartDay,
+        dstNotifications: profile.dstNotifications,
         isAuthenticated: false,
         authType: "anonymous",
         ssoName: undefined,
@@ -41,11 +50,14 @@ function currentUserProfile(args: Args) {
 // ---------------------------------------------------------------------------
 
 function getViewerProfile(args: Args) {
-  if (!args.anonymousId) return null;
+  if (!args.anonymousClaim) return null;
   return (
     store
       .query("userProfiles")
-      .find((profile) => profile.anonymousId === args.anonymousId) ?? null
+      .find(
+        (profile) =>
+          profile.identityId === identityIdForClaim(args.anonymousClaim),
+      ) ?? null
   );
 }
 

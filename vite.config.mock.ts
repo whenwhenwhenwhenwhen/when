@@ -17,12 +17,10 @@ export default defineConfig({
         find: "convex/react",
         replacement: path.resolve(__dirname, "src/mock/convexReact.ts"),
       },
-      // Replace Google auth module with a mock that always returns anonymous.
-      // Components import it via relative paths ("../lib/googleAuth",
-      // "./lib/googleAuth") so we match the full specifier.
+      // Replace auth module with a mock that always returns anonymous.
       {
-        find: /^\.\.?\/lib\/googleAuth(\.tsx)?$/,
-        replacement: path.resolve(__dirname, "src/mock/googleAuth.tsx"),
+        find: /^\.\.?\/lib\/authClient(\.tsx)?$/,
+        replacement: path.resolve(__dirname, "src/mock/authClient.tsx"),
       },
     ],
   },

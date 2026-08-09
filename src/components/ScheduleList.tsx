@@ -76,10 +76,10 @@ function ScheduleCards({ schedules }: { schedules: ListedSchedule[] }) {
 }
 
 export function ScheduleList() {
-  const { anonymousId } = useAnonymousUser();
+  const { anonymousClaim } = useAnonymousUser();
   const currentDate = DateTime.local().toISODate() ?? "";
   const schedules = useQuery(api.schedules.list, {
-    anonymousId: anonymousId || undefined,
+    anonymousClaim: anonymousClaim || undefined,
     currentDate,
   });
   const [showCreate, setShowCreate] = useState(false);

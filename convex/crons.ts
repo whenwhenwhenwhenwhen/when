@@ -20,7 +20,7 @@ crons.interval(
 crons.interval(
   "auth-session-cleanup",
   { hours: 6 },
-  internal.authSessions.cleanupExpiredSessions,
+  internal.auth.cleanupExpiredSessions,
   {}
 );
 

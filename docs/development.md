@@ -55,13 +55,14 @@ tsc -b --pretty false && vite build
 
 The app is a React/Vite frontend backed by Convex.
 
-Authentication uses Google OAuth through Convex HTTP endpoints:
+Authentication is provided by the `@clammet/convex-googly-auth` Convex component:
 
-1. The frontend sends users to Google.
-2. Google returns an authorization code to Convex.
-3. Convex exchanges the code for tokens.
-4. Convex redirects back to the frontend callback route.
-5. Convex verifies Google JWTs through `convex/auth.config.ts`.
+1. The component's React client starts Google sign-in.
+2. Component-backed Convex HTTP routes exchange the authorization code and
+   keep refresh tokens server-side.
+3. Convex verifies Google JWTs through `convex/auth.config.ts`.
+4. App profiles store only the component's opaque `identityId`; credentials,
+   anonymous claims, and auth sessions never live in app tables.
 
 Normal login and Calendar sync are separate OAuth flows but share the same
 configured Google OAuth client today:
@@ -71,8 +72,8 @@ configured Google OAuth client today:
 - Calendar sync asks for `calendar.readonly`, stores the calendar refresh token
   server-side, and imports busy time from selected calendars.
 
-Anonymous users are identified by a local UUID. Signing in with Google can
-merge anonymous activity into the authenticated profile.
+Anonymous users hold a 256-bit cookie claim. Only its hash is stored by the
+component. Signing in retires the claim and upgrades or merges the profile.
 
 ## Schedule Model
 

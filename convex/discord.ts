@@ -33,6 +33,7 @@ import {
   shouldPostNewDiscordMessage,
   SummaryInput,
 } from "./discordHelpers";
+import { requireCurrentProfile } from "./lib/auth";
 
 const INSTALL_SESSION_TTL_MS = 15 * 60 * 1000;
 const INSTALL_SESSION_CLEANUP_BATCH_SIZE = 100;
@@ -61,29 +62,9 @@ function isInstallSessionExpired(session: Doc<"discordInstallSessions">): boolea
 
 async function getCallerProfile(
   ctx: QueryCtx | MutationCtx,
-  args: { anonymousId?: string }
+  args: { anonymousClaim?: string },
 ): Promise<Doc<"userProfiles">> {
-  const identity = await ctx.auth.getUserIdentity();
-
-  if (identity) {
-    const authProfile = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_authUserId", (q) =>
-        q.eq("authUserId", identity.tokenIdentifier)
-      )
-      .unique();
-    if (authProfile) return authProfile;
-  }
-
-  if (args.anonymousId) {
-    const anonymousProfile = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_anonymousId", (q) => q.eq("anonymousId", args.anonymousId))
-      .unique();
-    if (anonymousProfile) return anonymousProfile;
-  }
-
-  throw new Error("Not authorized");
+  return await requireCurrentProfile(ctx, args.anonymousClaim);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +97,7 @@ export const getLinkForScheduleChannel = internalQuery({
 export const getOwnedInstallSession = internalQuery({
   args: {
     sessionToken: v.string(),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db
@@ -125,7 +106,7 @@ export const getOwnedInstallSession = internalQuery({
       .unique();
     if (!session || isInstallSessionExpired(session)) return null;
 
-    const profile = await getCallerProfile(ctx, { anonymousId: args.anonymousId });
+    const profile = await getCallerProfile(ctx, { anonymousClaim: args.anonymousClaim });
     if (session.profileId !== profile._id) {
       throw new Error("Not authorized");
     }
@@ -136,7 +117,7 @@ export const getOwnedInstallSession = internalQuery({
 export const getInstallSessionByToken = query({
   args: {
     sessionToken: v.string(),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db
@@ -145,7 +126,7 @@ export const getInstallSessionByToken = query({
       .unique();
     if (!session || isInstallSessionExpired(session)) return null;
 
-    const profile = await getCallerProfile(ctx, { anonymousId: args.anonymousId });
+    const profile = await getCallerProfile(ctx, { anonymousClaim: args.anonymousClaim });
     if (session.profileId !== profile._id) {
       throw new Error("Not authorized");
     }
@@ -406,12 +387,12 @@ export const listSchedulesForDiscordUser = internalQuery({
 export const createInstallSession = mutation({
   args: {
     scheduleId: v.id("schedules"),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<string> => {
     const schedule = await ctx.db.get(args.scheduleId);
     if (!schedule) throw new Error("Schedule not found");
-    const profile = await getCallerProfile(ctx, { anonymousId: args.anonymousId });
+    const profile = await getCallerProfile(ctx, { anonymousClaim: args.anonymousClaim });
 
     // Only the creator should be able to link (matches the schedule edit gating)
     if (schedule.creatorProfileId !== profile._id) {
@@ -517,13 +498,13 @@ export const deleteLink = internalMutation({
 export const unlink = mutation({
   args: {
     linkId: v.id("scheduleDiscordLinks"),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const link = await ctx.db.get(args.linkId);
     if (!link) return;
     const schedule = await ctx.db.get(link.scheduleId);
-    const profile = await getCallerProfile(ctx, { anonymousId: args.anonymousId });
+    const profile = await getCallerProfile(ctx, { anonymousClaim: args.anonymousClaim });
     // Only the schedule creator OR the original linker may unlink.
     if (
       schedule?.creatorProfileId !== profile._id &&
@@ -556,14 +537,14 @@ export const setNewMessageAfter = mutation({
   args: {
     linkId: v.id("scheduleDiscordLinks"),
     newMessageAfterMs: v.union(v.number(), v.null()),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const link = await ctx.db.get(args.linkId);
     if (!link) throw new Error("Discord link not found");
     const schedule = await ctx.db.get(link.scheduleId);
     const profile = await getCallerProfile(ctx, {
-      anonymousId: args.anonymousId,
+      anonymousClaim: args.anonymousClaim,
     });
     if (
       schedule?.creatorProfileId !== profile._id &&
@@ -596,14 +577,14 @@ export const setDstChangeNotifications = mutation({
   args: {
     linkId: v.id("scheduleDiscordLinks"),
     enabled: v.boolean(),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const link = await ctx.db.get(args.linkId);
     if (!link) throw new Error("Discord link not found");
     const schedule = await ctx.db.get(link.scheduleId);
     const profile = await getCallerProfile(ctx, {
-      anonymousId: args.anonymousId,
+      anonymousClaim: args.anonymousClaim,
     });
     if (
       schedule?.creatorProfileId !== profile._id &&
@@ -1095,7 +1076,7 @@ export const linkScheduleToChannel = action({
     sessionToken: v.string(),
     channelId: v.string(),
     channelName: v.optional(v.string()),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -1103,7 +1084,7 @@ export const linkScheduleToChannel = action({
   ): Promise<LinkScheduleResult> => {
     const session = await ctx.runQuery(internal.discord.getOwnedInstallSession, {
       sessionToken: args.sessionToken,
-      anonymousId: args.anonymousId,
+      anonymousClaim: args.anonymousClaim,
     });
     if (!session || !session.guildId) throw new Error("Install session missing");
 
@@ -1587,7 +1568,7 @@ type CompleteDiscordUserLinkResult =
 export const completeDiscordUserLink = mutation({
   args: {
     sessionToken: v.string(),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<CompleteDiscordUserLinkResult> => {
     const session = await ctx.db
@@ -1602,7 +1583,7 @@ export const completeDiscordUserLink = mutation({
     }
 
     const profile = await getCallerProfile(ctx, {
-      anonymousId: args.anonymousId,
+      anonymousClaim: args.anonymousClaim,
     });
     const existingByDiscord = await ctx.db
       .query("discordUserLinks")

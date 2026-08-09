@@ -36,10 +36,10 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("../hooks/useAnonymousUser", () => ({
-  useAnonymousUser: () => ({ anonymousId: "anonymous-id" }),
+  useAnonymousUser: () => ({ anonymousClaim: "anonymous-id" }),
 }));
 
-vi.mock("../lib/googleAuth", () => ({
+vi.mock("../lib/authClient", () => ({
   useGoogleAuth: () => ({ isAuthenticated: false, isLoading: false }),
 }));
 
@@ -68,7 +68,7 @@ describe("DiscordAccountLinkPage", () => {
     await waitFor(() =>
       expect(mocks.completeLink).toHaveBeenCalledWith({
         sessionToken: "token",
-        anonymousId: "anonymous-id",
+        anonymousClaim: "anonymous-id",
       }),
     );
     expect(screen.getByText("Discord account linked")).toBeTruthy();

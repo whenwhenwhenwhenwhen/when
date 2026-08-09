@@ -43,7 +43,7 @@ export const updateProfileImage = internalMutation({
  * avoids the browser-side rate-limiting (429) that Google applies to
  * hotlinked lh3.googleusercontent.com URLs.
  *
- * Scheduled from ensureAuthProfile / mergeAnonymousToAuth after sign-in.
+ * Scheduled from ensureProfile after sign-in.
  */
 export const downloadAndStoreProfileImage = internalAction({
   args: {

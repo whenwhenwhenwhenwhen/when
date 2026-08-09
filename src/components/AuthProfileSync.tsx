@@ -8,16 +8,15 @@ import { useTimezone } from "../hooks/useTimezone";
  * Root-level component that creates / merges user profiles after Google
  * sign-in completes.
  *
- * When `isAuthenticated` flips to true the component calls
- * `ensureAuthProfile` exactly once. The mutation server-side reads the
- * user's Google identity via `ctx.auth.getUserIdentity()` and either
- * links the existing anonymous profile or creates a new authenticated one.
+ * When `isAuthenticated` flips to true the component asks the auth component
+ * to upgrade or merge the current anonymous identity, then clears the retired
+ * claim from the browser.
  */
 export function AuthProfileSync() {
   const { isAuthenticated } = useConvexAuth();
-  const { anonymousId, clearAnonymousUser } = useAnonymousUser();
+  const { anonymousClaim, clearAnonymousUser } = useAnonymousUser();
   const { timezone } = useTimezone();
-  const ensureProfile = useMutation(api.users.ensureAuthProfile);
+  const ensureProfile = useMutation(api.users.ensureProfile);
   const hasRun = useRef(false);
 
   useEffect(() => {
@@ -25,7 +24,7 @@ export function AuthProfileSync() {
       hasRun.current = true;
 
       ensureProfile({
-        anonymousId: anonymousId || undefined,
+        anonymousClaim: anonymousClaim || undefined,
         timezone,
       })
         .then(() => {
@@ -38,7 +37,7 @@ export function AuthProfileSync() {
           hasRun.current = false; // allow retry
         });
     }
-  }, [isAuthenticated, anonymousId, timezone, ensureProfile, clearAnonymousUser]);
+  }, [isAuthenticated, anonymousClaim, timezone, ensureProfile, clearAnonymousUser]);
 
   return null;
 }

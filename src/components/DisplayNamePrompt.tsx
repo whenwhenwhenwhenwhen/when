@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "react-router";
-import { useGoogleAuth } from "../lib/googleAuth";
+import { useGoogleAuth } from "../lib/authClient";
 import { GoogleIcon } from "./GoogleIcon";
 import styles from "../styles/app.module.css";
 

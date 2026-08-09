@@ -10,6 +10,7 @@ import {
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { convertCellToTimezone } from "./timezone";
+import { googlyAuth } from "./lib/auth";
 
 const SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const SLOT_MINUTES = 30;
@@ -1140,13 +1141,19 @@ export const triggerSyncForProfile = action({
   args: { profileId: v.id("userProfiles") },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+    const identityId = await ctx.runQuery(googlyAuth.component.lib.resolve, {
+      googleSubject: identity.tokenIdentifier,
+    });
+    if (identityId === null) throw new Error("Not authenticated");
 
     const profile: Doc<"userProfiles"> | null = await ctx.runQuery(
       internal.calendarSync.getProfile,
       { profileId: args.profileId },
     );
-    if (!profile || profile.authUserId !== identity.tokenIdentifier) {
+    if (!profile || profile.identityId !== identityId) {
       throw new Error("Not authorized");
     }
 

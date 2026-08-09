@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AnonymousUserProvider,
   useAnonymousUser,
 } from "./useAnonymousUser";
+
+const authMocks = vi.hoisted(() => ({ clearAnonymousClaim: vi.fn() }));
+
+vi.mock("../lib/authClient", () => ({
+  getOrCreateAnonymousClaim: () => "a".repeat(64),
+  clearAnonymousClaim: authMocks.clearAnonymousClaim,
+}));
 
 function createMemoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -35,12 +42,25 @@ function GuestJoin() {
   return <button onClick={() => setDisplayName("Ada")}>Join as guest</button>;
 }
 
+function IdentityControls() {
+  const { anonymousClaim, clearAnonymousUser, startAnonymousUser } =
+    useAnonymousUser();
+  return (
+    <>
+      <output data-testid="claim">{anonymousClaim}</output>
+      <button onClick={clearAnonymousUser}>Clear identity</button>
+      <button onClick={startAnonymousUser}>Start identity</button>
+    </>
+  );
+}
+
 describe("AnonymousUserProvider", () => {
   beforeEach(() => {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
       value: createMemoryStorage(),
     });
+    authMocks.clearAnonymousClaim.mockClear();
   });
 
   it("shares the anonymous-to-guest transition with every mounted consumer", () => {
@@ -56,6 +76,21 @@ describe("AnonymousUserProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Join as guest" }));
 
     expect(screen.getByTestId("guest-status").textContent).toBe("Ada");
-    expect(localStorage.getItem("whengames_anonymous_name")).toBe("Ada");
+    expect(localStorage.getItem("when_anonymous_name")).toBe("Ada");
+  });
+
+  it("can mint a fresh anonymous identity after Google sign-out", () => {
+    render(
+      <AnonymousUserProvider>
+        <IdentityControls />
+      </AnonymousUserProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear identity" }));
+    expect(screen.getByTestId("claim").textContent).toBe("");
+    expect(authMocks.clearAnonymousClaim).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start identity" }));
+    expect(screen.getByTestId("claim").textContent).toBe("a".repeat(64));
   });
 });

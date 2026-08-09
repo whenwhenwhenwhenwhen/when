@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { BrowserRouter, Routes, Route } from "react-router";
-import { GoogleAuthProvider, useConvexGoogleAuth } from "./lib/googleAuth";
+import { GoogleAuthProvider, useConvexGooglyAuth } from "./lib/authClient";
 import { loadConfig } from "./config";
 import App from "./App";
 import { ScheduleView } from "./components/ScheduleView";
@@ -27,7 +27,7 @@ loadConfig()
         <ErrorBoundary>
           <GoogleAuthProvider>
             <AnonymousUserProvider>
-              <ConvexProviderWithAuth client={convex} useAuth={useConvexGoogleAuth}>
+              <ConvexProviderWithAuth client={convex} useAuth={useConvexGooglyAuth}>
                 <ToastProvider>
                   <AuthProfileSync />
                   <BrowserRouter>

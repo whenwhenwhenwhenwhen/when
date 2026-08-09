@@ -10,6 +10,7 @@ import {
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { cellKey, convertCellToTimezone } from "./timezone";
+import { requireGoogleProfile } from "./lib/auth";
 
 const SELECTION_DELETE_BATCH_SIZE = 500;
 const EFFECTIVE_SELECTION_LIMIT = 2000;
@@ -22,20 +23,9 @@ type SavedAvailabilitySlot = {
 };
 
 async function requireAuthenticatedProfile(
-  ctx: QueryCtx | MutationCtx
+  ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"userProfiles">> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authenticated");
-
-  const profile = await ctx.db
-    .query("userProfiles")
-    .withIndex("by_authUserId", (q) =>
-      q.eq("authUserId", identity.tokenIdentifier)
-    )
-    .unique();
-
-  if (!profile) throw new Error("Authenticated profile not found");
-  return profile;
+  return await requireGoogleProfile(ctx);
 }
 
 async function requireOwnedSavedAvailability(
@@ -598,4 +588,3 @@ export const renameSaved = mutation({
     await ctx.db.patch(args.savedAvailabilityId, { name: args.name });
   },
 });
-

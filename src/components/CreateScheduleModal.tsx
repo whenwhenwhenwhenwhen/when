@@ -14,15 +14,15 @@ interface Props {
 
 export function CreateScheduleModal({ onClose }: Props) {
   const navigate = useNavigate();
-  const { anonymousId, displayName, setDisplayName } = useAnonymousUser();
+  const { anonymousClaim, displayName, setDisplayName } = useAnonymousUser();
   const { timezone } = useTimezone();
 
   const profile = useQuery(api.users.currentUserProfile, {
-    anonymousId: anonymousId || undefined,
+    anonymousClaim: anonymousClaim || undefined,
   });
 
   const createSchedule = useMutation(api.schedules.create);
-  const getOrCreateProfile = useMutation(api.users.getOrCreateAnonymousProfile);
+  const getOrCreateProfile = useMutation(api.users.ensureProfile);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -46,7 +46,7 @@ export function CreateScheduleModal({ onClose }: Props) {
       if (!profileId) {
         const name = creatorName.trim() || "Anonymous";
         profileId = await getOrCreateProfile({
-          anonymousId,
+          anonymousClaim,
           displayName: name,
           timezone: timezone || detectTimezone(),
         });
@@ -60,7 +60,7 @@ export function CreateScheduleModal({ onClose }: Props) {
         description: description.trim() || undefined,
         type,
         creatorProfileId: profileId,
-        anonymousId: anonymousId || undefined,
+        anonymousClaim: anonymousClaim || undefined,
         dateRangeStart: type === "one-off" ? dateStart : undefined,
         dateRangeEnd: type === "one-off" ? dateEnd : undefined,
         recurringStartDate: type === "recurring" && recurringStartDate ? recurringStartDate : undefined,

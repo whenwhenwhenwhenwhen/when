@@ -2,14 +2,10 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  // User profiles (both anonymous and authenticated via Google)
+  // App-owned profile data. Credentials and sessions live in googlyAuth.
   userProfiles: defineTable({
-    // Google identity tokenIdentifier (set when authenticated via Google)
-    authUserId: v.optional(v.string()),
-    // Anonymous identifier stored in client localStorage
-    anonymousId: v.optional(v.string()),
+    identityId: v.string(),
     displayName: v.string(),
-    email: v.optional(v.string()),
     profileImageUrl: v.optional(v.string()),
     // Convex file storage ID for the cached profile image (downloaded from Google)
     profileImageStorageId: v.optional(v.id("_storage")),
@@ -19,8 +15,7 @@ export default defineSchema({
     weekStartDay: v.number(), // 0=Sunday, 1=Monday, ..., 6=Saturday
     dstNotifications: v.boolean(),
   })
-    .index("by_authUserId", ["authUserId"])
-    .index("by_anonymousId", ["anonymousId"])
+    .index("by_identityId", ["identityId"])
     .index("by_profileImageStorageId_and_profileImageUrl", [
       "profileImageStorageId",
       "profileImageUrl",
@@ -92,6 +87,7 @@ export default defineSchema({
     invalidatedAt: v.number(),
   })
     .index("by_schedule", ["scheduleId"])
+    .index("by_profileId", ["profileId"])
     .index("by_schedule_profile_invalidatedAt", [
       "scheduleId",
       "profileId",
@@ -166,31 +162,12 @@ export default defineSchema({
     .index("by_savedAvailability", ["savedAvailabilityId"])
     .index("by_profileId", ["profileId"]),
 
-  // Server-side auth sessions (stores Google refresh tokens for silent token renewal)
-  authSessions: defineTable({
-    sessionToken: v.string(),
-    refreshToken: v.string(),
-    googleUserId: v.string(),
-    createdAt: v.number(),
-    // Absolute deadline: the session dies here no matter how actively it is
-    // used. Optional only so rows created before expiry existed still validate;
-    // those are treated as createdAt + SESSION_ABSOLUTE_TTL_MS.
-    expiresAt: v.optional(v.number()),
-    // Last successful refresh, for the idle timeout. Missing means never
-    // refreshed since creation, so createdAt stands in.
-    lastUsedAt: v.optional(v.number()),
-  })
-    .index("by_sessionToken", ["sessionToken"])
-    .index("by_googleUserId", ["googleUserId"])
-    .index("by_expiresAt", ["expiresAt"]),
-
   // External calendar sources (Google Calendar or ICS URLs)
   calendarSources: defineTable({
     profileId: v.id("userProfiles"),
     type: v.union(v.literal("google"), v.literal("ics")),
     // Google-specific
     calendarRefreshToken: v.optional(v.string()),
-    googleUserId: v.optional(v.string()),
     availableCalendars: v.optional(
       v.array(
         v.object({
@@ -226,6 +203,7 @@ export default defineSchema({
     isException: v.optional(v.boolean()),
     exceptionDate: v.optional(v.string()),
   })
+    .index("by_profileId", ["profileId"])
     .index("by_scheduleId", ["scheduleId"])
     .index("by_profile_schedule", ["profileId", "scheduleId"])
     .index("by_profile_event", ["profileId", "externalEventId"])
@@ -250,11 +228,13 @@ export default defineSchema({
     dstChangeDate: v.string(),
     notifiedAt: v.number(),
     impactDescription: v.string(),
-  }).index("by_schedule_profile_date", [
-    "scheduleId",
-    "profileId",
-    "dstChangeDate",
-  ]),
+  })
+    .index("by_profileId", ["profileId"])
+    .index("by_schedule_profile_date", [
+      "scheduleId",
+      "profileId",
+      "dstChangeDate",
+    ]),
 
   // Links a schedule to a Discord channel for notifications
   scheduleDiscordLinks: defineTable({
@@ -294,7 +274,8 @@ export default defineSchema({
     lastDstNotificationKey: v.optional(v.string()),
   })
     .index("by_schedule", ["scheduleId"])
-    .index("by_channel", ["channelId"]),
+    .index("by_channel", ["channelId"])
+    .index("by_linkedByProfileId", ["linkedByProfileId"]),
 
   // Tracks message provenance independently of the current update target.
   // This lets unlink cleanup remove all channel-link lifecycle messages while
@@ -352,5 +333,6 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_sessionToken", ["sessionToken"])
+    .index("by_profileId", ["profileId"])
     .index("by_createdAt", ["createdAt"]),
 });

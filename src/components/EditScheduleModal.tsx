@@ -19,7 +19,7 @@ interface Schedule {
 
 interface Props {
   schedule: Schedule;
-  anonymousId?: string;
+  anonymousClaim?: string;
   archiveState?: {
     canArchive: boolean;
     isArchived: boolean;
@@ -33,7 +33,7 @@ interface Props {
 
 export function EditScheduleModal({
   schedule,
-  anonymousId,
+  anonymousClaim,
   archiveState,
   isArchiving,
   onToggleArchive,
@@ -47,7 +47,7 @@ export function EditScheduleModal({
   // Load blocked profiles
   const blockedProfiles = useQuery(api.schedules.getBlockedProfiles, {
     scheduleId: schedule._id,
-    anonymousId,
+    anonymousClaim,
   });
 
   const [title, setTitle] = useState(schedule.title);
@@ -73,7 +73,7 @@ export function EditScheduleModal({
     try {
       await updateSchedule({
         scheduleId: schedule._id,
-        anonymousId,
+        anonymousClaim,
         title: title.trim(),
         description: description.trim() || undefined,
         type,
@@ -95,7 +95,7 @@ export function EditScheduleModal({
   const handleDelete = async () => {
     setIsSubmitting(true);
     try {
-      await removeSchedule({ scheduleId: schedule._id, anonymousId });
+      await removeSchedule({ scheduleId: schedule._id, anonymousClaim });
       navigate("/");
     } catch (err) {
       console.error("Failed to delete schedule:", err);
@@ -306,7 +306,7 @@ export function EditScheduleModal({
                       onClick={async () => {
                         await unblockParticipant({
                           scheduleId: schedule._id,
-                          anonymousId,
+                          anonymousClaim,
                           profileId: blocked.profileId,
                         });
                       }}

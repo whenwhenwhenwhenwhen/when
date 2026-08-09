@@ -11,24 +11,14 @@ import {
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { normalizeIcsUrl } from "./calendarSync";
+import { googlyAuth, requireGoogleProfile } from "./lib/auth";
 
 async function getAuthenticatedProfile(
-  ctx: {
-    auth: {
-      getUserIdentity: () => Promise<{ tokenIdentifier: string } | null>;
-    };
-    db: QueryCtx["db"] | MutationCtx["db"];
-  },
-  profileId: Id<"userProfiles">
+  ctx: QueryCtx | MutationCtx,
+  profileId: Id<"userProfiles">,
 ) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authenticated");
-
-  const profile = await ctx.db
-    .query("userProfiles")
-    .withIndex("by_authUserId", (q) => q.eq("authUserId", identity.tokenIdentifier))
-    .unique();
-  if (!profile || profile._id !== profileId) {
+  const profile = await requireGoogleProfile(ctx);
+  if (profile._id !== profileId) {
     throw new Error("Not authorized");
   }
   return profile;
@@ -69,12 +59,12 @@ export const getForProfile = query({
 export const getOwnedGoogleSource = internalQuery({
   args: {
     profileId: v.id("userProfiles"),
-    authUserId: v.string(),
+    identityId: v.string(),
   },
   handler: async (ctx, args) => {
     const profile = await ctx.db
       .query("userProfiles")
-      .withIndex("by_authUserId", (q) => q.eq("authUserId", args.authUserId))
+      .withIndex("by_identityId", (q) => q.eq("identityId", args.identityId))
       .unique();
     if (!profile || profile._id !== args.profileId) {
       throw new Error("Not authorized");
@@ -90,20 +80,18 @@ export const getOwnedGoogleSource = internalQuery({
 
 export const storeGoogleCalendarToken = internalMutation({
   args: {
-    googleUserId: v.string(),
+    identityId: v.string(),
     calendarRefreshToken: v.string(),
     availableCalendars: v.array(
       v.object({ id: v.string(), summary: v.string() })
     ),
   },
   handler: async (ctx, args) => {
-    const authUserId = `https://accounts.google.com|${args.googleUserId}`;
-
     const profile = await ctx.db
       .query("userProfiles")
-      .withIndex("by_authUserId", (q) => q.eq("authUserId", authUserId))
+      .withIndex("by_identityId", (q) => q.eq("identityId", args.identityId))
       .unique();
-    if (!profile) throw new Error("No user profile found for this Google user");
+    if (!profile) throw new Error("No user profile found for this identity");
 
     const existingSources = await ctx.db
       .query("calendarSources")
@@ -117,7 +105,6 @@ export const storeGoogleCalendarToken = internalMutation({
       await ctx.db.patch(googleSource._id, {
         calendarRefreshToken: args.calendarRefreshToken,
         availableCalendars: args.availableCalendars,
-        googleUserId: args.googleUserId,
         enabled: true,
       });
       calendarSourceId = googleSource._id;
@@ -126,7 +113,6 @@ export const storeGoogleCalendarToken = internalMutation({
         profileId: profile._id,
         type: "google",
         calendarRefreshToken: args.calendarRefreshToken,
-        googleUserId: args.googleUserId,
         availableCalendars: args.availableCalendars,
         selectedCalendarIds: [],
         enabled: true,
@@ -226,13 +212,19 @@ export const fetchGoogleCalendars = action({
   args: { profileId: v.id("userProfiles") },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+    const identityId = await ctx.runQuery(googlyAuth.component.lib.resolve, {
+      googleSubject: identity.tokenIdentifier,
+    });
+    if (identityId === null) throw new Error("Not authenticated");
 
     const googleSource: Doc<"calendarSources"> | null = await ctx.runQuery(
       internal.calendarSources.getOwnedGoogleSource,
       {
         profileId: args.profileId,
-        authUserId: identity.tokenIdentifier,
+        identityId,
       }
     );
     if (!googleSource || !googleSource.calendarRefreshToken) {

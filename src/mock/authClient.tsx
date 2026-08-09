@@ -1,22 +1,12 @@
 /**
- * Mock replacement for "src/lib/googleAuth.tsx".
+ * Mock replacement for "src/lib/authClient.tsx".
  *
  * In design mode, the user is always anonymous (not authenticated).
  * All auth actions are no-ops.
  */
 
 import { type ReactNode } from "react";
-
-// ---------------------------------------------------------------------------
-// Constants & utilities re-exported for AuthCallbackPage
-// ---------------------------------------------------------------------------
-
-export const TOKEN_KEY = "whengames_google_token";
-export const SESSION_KEY = "whengames_session_token";
-export const OAUTH_NONCE_KEY = "whengames_oauth_nonce";
-export function validateGoogleJwt(_token: string) {
-  return false;
-}
+import { MOCK_ANONYMOUS_CLAIM } from "./identity";
 
 // ---------------------------------------------------------------------------
 // GoogleAuthProvider — renders children, no auth context needed
@@ -46,13 +36,23 @@ export function useGoogleAuth() {
 }
 
 // ---------------------------------------------------------------------------
-// useConvexGoogleAuth — consumed by ConvexProviderWithAuth
+// useConvexGooglyAuth — consumed by ConvexProviderWithAuth
 // ---------------------------------------------------------------------------
 
-export function useConvexGoogleAuth() {
+export function useConvexGooglyAuth() {
   return {
     isLoading: false,
     isAuthenticated: false,
     fetchAccessToken: async () => null as string | null,
   };
+}
+
+export function getOrCreateAnonymousClaim() {
+  return MOCK_ANONYMOUS_CLAIM;
+}
+
+export function clearAnonymousClaim() {}
+
+export function handleAuthCallback() {
+  return { redirect: "/", error: "Authentication is disabled in design mode" };
 }

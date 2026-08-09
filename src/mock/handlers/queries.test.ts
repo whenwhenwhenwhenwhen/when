@@ -1,20 +1,21 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import * as store from "../store";
+import { identityIdForClaim } from "../identity";
 import { queryHandlers } from "./queries";
 
 let schedulesList: (args: Record<string, unknown>) => Record<string, unknown>;
-const anonymousId = "schedule-list-viewer";
+const anonymousClaim = "schedule-list-viewer";
 
 beforeAll(() => {
   schedulesList = queryHandlers["schedules:list"];
 
   const viewerProfileId = store.insert("userProfiles", {
-    anonymousId,
+    identityId: identityIdForClaim(anonymousClaim),
     displayName: "Viewer",
     timezone: "Australia/Melbourne",
   });
   const otherProfileId = store.insert("userProfiles", {
-    anonymousId: "schedule-list-other",
+    identityId: identityIdForClaim("schedule-list-other"),
     displayName: "Other",
     timezone: "Australia/Melbourne",
   });
@@ -70,7 +71,7 @@ beforeAll(() => {
 describe("schedules:list design-mode handler", () => {
   it("separates owned and participated schedules without unrelated ones", () => {
     const result = schedulesList({
-      anonymousId,
+      anonymousClaim,
       currentDate: "2026-08-02",
     }) as {
       mySchedules: { title: string }[];

@@ -1,6 +1,8 @@
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
 minimumReleaseAgeIgnoreMissingTime: false
+minimumReleaseAgeExclude:
+  - "@clammet/*"
 
 allowBuilds:
   esbuild: true

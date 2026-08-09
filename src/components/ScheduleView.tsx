@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router";
 import { useQuery, useMutation } from "convex/react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { useGoogleAuth } from "../lib/googleAuth";
+import { useGoogleAuth } from "../lib/authClient";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { Header } from "./Header";
@@ -38,13 +38,13 @@ export function ScheduleView() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useGoogleAuth();
   const { showToast } = useToast();
-  const { anonymousId, displayName, setDisplayName, hasInteracted } =
+  const { anonymousClaim, displayName, setDisplayName, hasInteracted } =
     useAnonymousUser();
 
   const profile = useQuery(api.users.currentUserProfile, {
-    anonymousId: isAuthenticated ? undefined : anonymousId || undefined,
+    anonymousClaim: isAuthenticated ? undefined : anonymousClaim || undefined,
   });
-  const callerAnonymousId = isAuthenticated ? undefined : anonymousId || undefined;
+  const callerAnonymousClaim = isAuthenticated ? undefined : anonymousClaim || undefined;
   const currentDate = DateTime.local().toISODate() ?? "";
 
   const schedule = useQuery(api.schedules.get, {
@@ -52,13 +52,13 @@ export function ScheduleView() {
   });
   const viewerScheduleState = useQuery(api.schedules.getViewerScheduleState, {
     scheduleId: id as Id<"schedules">,
-    anonymousId: callerAnonymousId,
+    anonymousClaim: callerAnonymousClaim,
     currentDate,
   });
 
   const { timezone } = useTimezone(profile?.timezone);
 
-  const getOrCreateProfile = useMutation(api.users.getOrCreateAnonymousProfile);
+  const getOrCreateProfile = useMutation(api.users.ensureProfile);
   const setSelectionMut = useMutation(api.selections.set);
   const removeSelectionMut = useMutation(api.selections.remove);
   const batchSetMut = useMutation(api.selections.batchSet);
@@ -168,7 +168,7 @@ export function ScheduleView() {
       try {
         if (!profile) {
           await getOrCreateProfile({
-            anonymousId,
+            anonymousClaim,
             displayName: name,
             timezone: timezone || detectTimezone(),
           });
@@ -180,7 +180,7 @@ export function ScheduleView() {
       }
     },
     [
-      anonymousId,
+      anonymousClaim,
       getOrCreateProfile,
       profile,
       reportFailure,
@@ -224,7 +224,7 @@ export function ScheduleView() {
           timezone: cellTimezone,
           scheduleDayKey,
           scheduleTimeSlot,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
         });
       } else {
         await setSelectionMut({
@@ -238,14 +238,14 @@ export function ScheduleView() {
           exceptionDate,
           scheduleDayKey,
           scheduleTimeSlot,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
         });
       }
     },
     [
       id,
       effectiveProfileId,
-      callerAnonymousId,
+      callerAnonymousClaim,
       selectionTimezone,
       setSelectionMut,
       removeSelectionMut,
@@ -272,13 +272,13 @@ export function ScheduleView() {
         profileId: effectiveProfileId,
         timezone: selectionTimezone,
         selections: cells,
-        anonymousId: callerAnonymousId,
+        anonymousClaim: callerAnonymousClaim,
       });
     },
     [
       id,
       effectiveProfileId,
-      callerAnonymousId,
+      callerAnonymousClaim,
       selectionTimezone,
       batchSetMut,
     ]
@@ -291,18 +291,18 @@ export function ScheduleView() {
       if (isCreator && creatorMode === "limit") {
         await setDisallowedSlots({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           slots,
         });
       } else if (canLock && creatorMode === "lock") {
         await setLockedSlots({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           slots,
         });
       }
     },
-    [isCreator, canLock, schedule, callerAnonymousId, creatorMode, setDisallowedSlots, setLockedSlots]
+    [isCreator, canLock, schedule, callerAnonymousClaim, creatorMode, setDisallowedSlots, setLockedSlots]
   );
 
   // Availability handlers
@@ -387,14 +387,14 @@ export function ScheduleView() {
       try {
         await setAcceptParticipation({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           acceptParticipation: accept,
         });
       } catch (err) {
         reportFailure("Couldn't update participation settings.", err);
       }
     },
-    [schedule, callerAnonymousId, setAcceptParticipation, reportFailure]
+    [schedule, callerAnonymousClaim, setAcceptParticipation, reportFailure]
   );
 
   const handleToggleAnyoneCanLock = useCallback(
@@ -403,14 +403,14 @@ export function ScheduleView() {
       try {
         await setAnyoneCanLock({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           anyoneCanLock: enabled,
         });
       } catch (err) {
         reportFailure("Couldn't update lock permissions.", err);
       }
     },
-    [schedule, callerAnonymousId, setAnyoneCanLock, reportFailure]
+    [schedule, callerAnonymousClaim, setAnyoneCanLock, reportFailure]
   );
 
   const handlePromoteLockEditor = useCallback(
@@ -419,14 +419,14 @@ export function ScheduleView() {
       try {
         await addLockEditor({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           profileId,
         });
       } catch (err) {
         reportFailure("Couldn't update lock permissions.", err);
       }
     },
-    [schedule, callerAnonymousId, addLockEditor, reportFailure]
+    [schedule, callerAnonymousClaim, addLockEditor, reportFailure]
   );
 
   const handleDemoteLockEditor = useCallback(
@@ -435,14 +435,14 @@ export function ScheduleView() {
       try {
         await removeLockEditor({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           profileId,
         });
       } catch (err) {
         reportFailure("Couldn't update lock permissions.", err);
       }
     },
-    [schedule, callerAnonymousId, removeLockEditor, reportFailure]
+    [schedule, callerAnonymousClaim, removeLockEditor, reportFailure]
   );
 
   const handleDeleteParticipant = useCallback(
@@ -455,7 +455,7 @@ export function ScheduleView() {
       try {
         await removeParticipant({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           profileId,
         });
       } catch (err) {
@@ -464,7 +464,7 @@ export function ScheduleView() {
     },
     [
       schedule,
-      callerAnonymousId,
+      callerAnonymousClaim,
       editingProfileId,
       removeParticipant,
       reportFailure,
@@ -481,7 +481,7 @@ export function ScheduleView() {
       try {
         await blockParticipant({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
           profileId,
         });
       } catch (err) {
@@ -490,7 +490,7 @@ export function ScheduleView() {
     },
     [
       schedule,
-      callerAnonymousId,
+      callerAnonymousClaim,
       editingProfileId,
       blockParticipant,
       reportFailure,
@@ -523,7 +523,7 @@ export function ScheduleView() {
     try {
       await setArchived({
         scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
+        anonymousClaim: callerAnonymousClaim,
         archived: !viewerScheduleState.isManuallyArchived,
       });
     } catch (err) {
@@ -532,7 +532,7 @@ export function ScheduleView() {
       setIsArchiving(false);
     }
   }, [
-    callerAnonymousId,
+    callerAnonymousClaim,
     reportFailure,
     schedule,
     setArchived,
@@ -583,27 +583,27 @@ export function ScheduleView() {
       if (canLock && creatorMode === "lock") {
         await clearLockedSlots({
           scheduleId: schedule._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
         });
       } else if (!isCreator) {
         await clearSelections({
           scheduleId: schedule._id,
           profileId: profile._id,
-          anonymousId: callerAnonymousId,
+          anonymousClaim: callerAnonymousClaim,
         });
       } else {
         switch (creatorMode) {
           case "limit":
             await clearDisallowedSlots({
               scheduleId: schedule._id,
-              anonymousId: callerAnonymousId,
+              anonymousClaim: callerAnonymousClaim,
             });
             break;
           case "nominate":
             await clearSelections({
               scheduleId: schedule._id,
               profileId: profile._id,
-              anonymousId: callerAnonymousId,
+              anonymousClaim: callerAnonymousClaim,
             });
             break;
         }
@@ -620,7 +620,7 @@ export function ScheduleView() {
     clearSelections,
     clearDisallowedSlots,
     clearLockedSlots,
-    callerAnonymousId,
+    callerAnonymousClaim,
     reportFailure,
   ]);
 
@@ -673,7 +673,7 @@ export function ScheduleView() {
     try {
       await setDisallowedSlots({
         scheduleId: schedule._id,
-        anonymousId: callerAnonymousId,
+        anonymousClaim: callerAnonymousClaim,
         slots: disallowedSlots,
       });
     } catch (err) {
@@ -682,7 +682,7 @@ export function ScheduleView() {
   }, [
     schedule,
     profile,
-    callerAnonymousId,
+    callerAnonymousClaim,
     referenceDate,
     setDisallowedSlots,
     reportFailure,
@@ -819,8 +819,8 @@ export function ScheduleView() {
                         scheduleId={schedule._id}
                         scheduleType={schedule.type}
                         profileId={profile?._id ?? null}
-                        anonymousId={
-                          isAuthenticated ? undefined : anonymousId || undefined
+                        anonymousClaim={
+                          isAuthenticated ? undefined : anonymousClaim || undefined
                         }
                         isCreator
                         linkButtonClassName={cx(
@@ -1172,7 +1172,7 @@ export function ScheduleView() {
       {showEditModal && schedule && (
         <EditScheduleModal
           schedule={schedule}
-          anonymousId={callerAnonymousId}
+          anonymousClaim={callerAnonymousClaim}
           archiveState={viewerScheduleState}
           isArchiving={isArchiving}
           onToggleArchive={handleToggleArchive}

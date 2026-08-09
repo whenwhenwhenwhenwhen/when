@@ -7,19 +7,19 @@ import {
   useMemo,
   useState,
 } from "react";
+import {
+  clearAnonymousClaim,
+  getOrCreateAnonymousClaim,
+} from "../lib/authClient";
 
-const ANON_ID_KEY = "whengames_anonymous_id";
-const ANON_NAME_KEY = "whengames_anonymous_name";
-
-function generateUUID(): string {
-  return crypto.randomUUID();
-}
+const ANON_NAME_KEY = "when_anonymous_name";
 
 interface AnonymousUserContextValue {
-  anonymousId: string;
+  anonymousClaim: string;
   displayName: string;
   setDisplayName: (name: string) => void;
   clearAnonymousUser: () => void;
+  startAnonymousUser: () => void;
   hasInteracted: boolean;
 }
 
@@ -28,21 +28,16 @@ const AnonymousUserContext = createContext<AnonymousUserContextValue | null>(
 );
 
 /**
- * Provides the app's anonymous user identity, persisted via localStorage.
+ * Adds app profile state to the auth module's anonymous identity claim.
  *
- * - Generates/retrieves a persistent anonymous ID
+ * - The bearer claim is stored in a cookie by @clammet/convex-googly-auth
  * - Stores display name
  * - Shares updates between every mounted consumer
  */
 export function AnonymousUserProvider({ children }: PropsWithChildren) {
-  const [anonymousId, setAnonymousId] = useState<string>(() => {
-    let id = localStorage.getItem(ANON_ID_KEY);
-    if (!id) {
-      id = generateUUID();
-      localStorage.setItem(ANON_ID_KEY, id);
-    }
-    return id;
-  });
+  const [anonymousClaim, setAnonymousClaim] = useState<string>(
+    () => getOrCreateAnonymousClaim() ?? "",
+  );
   const [displayName, setDisplayNameState] = useState<string>(
     () => localStorage.getItem(ANON_NAME_KEY) || "",
   );
@@ -53,28 +48,34 @@ export function AnonymousUserProvider({ children }: PropsWithChildren) {
   }, []);
 
   const clearAnonymousUser = useCallback(() => {
-    localStorage.removeItem(ANON_ID_KEY);
+    clearAnonymousClaim();
     localStorage.removeItem(ANON_NAME_KEY);
-    setAnonymousId("");
+    setAnonymousClaim("");
     setDisplayNameState("");
+  }, []);
+
+  const startAnonymousUser = useCallback(() => {
+    setAnonymousClaim(getOrCreateAnonymousClaim() ?? "");
   }, []);
 
   const hasInteracted = displayName.length > 0;
 
   const value = useMemo(
     () => ({
-      anonymousId,
+      anonymousClaim,
       displayName,
       setDisplayName,
       clearAnonymousUser,
+      startAnonymousUser,
       hasInteracted,
     }),
     [
-      anonymousId,
+      anonymousClaim,
       clearAnonymousUser,
       displayName,
       hasInteracted,
       setDisplayName,
+      startAnonymousUser,
     ],
   );
 

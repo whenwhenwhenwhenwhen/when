@@ -2,29 +2,17 @@
  * Seed data for design mode.
  *
  * Populates the in-memory store with realistic sample data on import.
- * The anonymous user's ID is read from (or written to) localStorage so
- * it stays in sync with useAnonymousUser.
+ * The anonymous identity matches the auth client mock.
  */
 
 import { insert } from "./store";
+import { identityIdForClaim, MOCK_ANONYMOUS_CLAIM } from "./identity";
 
 // ---------------------------------------------------------------------------
-// Anonymous user ID — kept in sync with useAnonymousUser hook
+// Anonymous profile — kept in sync with the auth client mock
 // ---------------------------------------------------------------------------
 
-const ANON_ID_KEY = "whengames_anonymous_id";
-const ANON_NAME_KEY = "whengames_anonymous_name";
-
-function getOrCreateAnonymousId(): string {
-  let id = localStorage.getItem(ANON_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(ANON_ID_KEY, id);
-  }
-  return id;
-}
-
-const anonymousId = getOrCreateAnonymousId();
+const ANON_NAME_KEY = "when_anonymous_name";
 
 // Set a display name if none exists so the user is "already onboarded"
 if (!localStorage.getItem(ANON_NAME_KEY)) {
@@ -48,7 +36,7 @@ const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 // ---------------------------------------------------------------------------
 
 const designerProfileId = insert("userProfiles", {
-  anonymousId,
+  identityId: identityIdForClaim(MOCK_ANONYMOUS_CLAIM),
   displayName: localStorage.getItem(ANON_NAME_KEY) || "Designer",
   timezone: userTimezone,
   weekStartDay: 0,
@@ -56,7 +44,7 @@ const designerProfileId = insert("userProfiles", {
 });
 
 const aliceProfileId = insert("userProfiles", {
-  anonymousId: "mock-alice-id",
+  identityId: "mock-google:alice",
   displayName: "Alice Chen",
   timezone: "America/New_York",
   weekStartDay: 1,
@@ -64,7 +52,7 @@ const aliceProfileId = insert("userProfiles", {
 });
 
 const bobProfileId = insert("userProfiles", {
-  anonymousId: "mock-bob-id",
+  identityId: "mock-google:bob",
   displayName: "Bob Martinez",
   timezone: "America/Los_Angeles",
   weekStartDay: 0,

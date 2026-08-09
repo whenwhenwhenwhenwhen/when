@@ -67,25 +67,24 @@ npx convex env list
 
 ## Session Lifetime
 
-Signing in creates a row in `authSessions` holding the Google refresh token.
-The browser only ever receives an opaque, HMAC-signed session token; the
-refresh token itself never leaves the backend.
+Signing in creates a component-owned session holding the Google refresh token.
+The browser only ever receives an opaque, HMAC-signed session token, which is
+rotated on refresh; the refresh token itself never leaves the backend.
 
 Sessions end at whichever of these comes first:
 
 | Bound | Default | Measured from | Enforced in |
 | --- | --- | --- | --- |
-| Absolute | 30 days | sign-in (`expiresAt`) | `/auth/refresh` |
-| Idle | 7 days | last successful refresh (`lastUsedAt`) | `/auth/refresh` |
-| Explicit | immediate | sign-out (`/auth/signout`) | client sign-out |
+| Absolute | 180 days | initial sign-in | `/auth/refresh` |
+| Idle | 60 days | last successful refresh | `/auth/refresh` |
+| Explicit | immediate | sign-out (`/auth/sign-out`) | client sign-out |
 
-Both defaults live in `convex/authSessions.ts` as `SESSION_ABSOLUTE_TTL_MS` and
-`SESSION_IDLE_TTL_MS`. Shortening them takes effect on the next refresh, since
-expiry is evaluated at use rather than stamped once at creation.
+These are the `@clammet/convex-googly-auth` defaults. They can be changed in the shared
+`GooglyAuth` instance with `sessionAbsoluteTtlMs` and `sessionIdleTtlMs`.
 
-Signing out deletes the session row and asks Google to revoke the refresh
-token. Expired rows are swept every 6 hours by the `auth-session-cleanup`
-cron, so revocation never depends on the client's request arriving.
+Signing out deletes the component session and asks Google to revoke the refresh
+token. Expired component sessions are swept every 6 hours by the
+`auth-session-cleanup` cron.
 
 ## Frontend Runtime Config
 

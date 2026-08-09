@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import { useMutation, useQuery, useAction } from "convex/react";
 import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
-import { useGoogleAuth } from "../lib/googleAuth";
 import { getCommonTimezones } from "../lib/timezone";
 import { Id } from "../../convex/_generated/dataModel";
 import { CalendarSyncSettings } from "./CalendarSyncSettings";
@@ -16,8 +15,6 @@ interface Profile {
   timezone: string;
   weekStartDay: number;
   dstNotifications: boolean;
-  authUserId?: string;
-  email?: string;
   profileImageUrl?: string;
   isAuthenticated: boolean;
   authType: "sso" | "anonymous";
@@ -28,7 +25,7 @@ interface Profile {
 
 interface Props {
   profile: Profile;
-  anonymousId?: string;
+  anonymousClaim?: string;
   onClose: () => void;
 }
 
@@ -41,9 +38,6 @@ const DAY_NAMES = [
   "Friday",
   "Saturday",
 ];
-
-const ANON_ID_KEY = "whengames_anonymous_id";
-const ANON_NAME_KEY = "whengames_anonymous_name";
 
 function formatTzLabel(tz: string): string {
   // "America/New_York" -> "New York (America)"
@@ -131,11 +125,9 @@ function TimezoneSearchSelect({
   );
 }
 
-export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
+export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
   const updateProfile = useMutation(api.users.updateProfile);
-  const unlinkSso = useMutation(api.users.unlinkSso);
   const triggerSync = useAction(api.calendarSync.triggerSyncForProfile);
-  const { signOut } = useGoogleAuth();
   const { showToast, updateToast } = useToast();
 
   const calendarSources = useQuery(
@@ -151,41 +143,13 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
     profile.dstNotifications
   );
   const [saving, setSaving] = useState(false);
-  const [unlinking, setUnlinking] = useState(false);
-  const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false);
   const [timezoneSearch, setTimezoneSearch] = useState("");
-
-  const handleUnlink = async () => {
-    setUnlinking(true);
-    try {
-      // Generate a new anonymous ID
-      const newAnonymousId = crypto.randomUUID();
-
-      const result = await unlinkSso({
-        newAnonymousId,
-      });
-
-      // Store the new anonymous identity in localStorage
-      localStorage.setItem(ANON_ID_KEY, newAnonymousId);
-      localStorage.setItem(ANON_NAME_KEY, result.displayName);
-
-      // Sign out (clear Google token)
-      signOut();
-      setShowUnlinkConfirm(false);
-      onClose();
-      window.location.reload();
-    } catch (err) {
-      console.error("Failed to unlink SSO:", err);
-    } finally {
-      setUnlinking(false);
-    }
-  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await updateProfile({
-        anonymousId: profile.authType === "anonymous" ? anonymousId : undefined,
+        anonymousClaim: profile.authType === "anonymous" ? anonymousClaim : undefined,
         displayName,
         timezone,
         weekStartDay,
@@ -250,40 +214,10 @@ export function UserSettingsModal({ profile, anonymousId, onClose }: Props) {
                     {profile.ssoEmail && (
                       <p className={styles.accentText}>{profile.ssoEmail}</p>
                     )}
-                    {!showUnlinkConfirm ? (
-                      <button
-                        onClick={() => setShowUnlinkConfirm(true)}
-                        className={cx(styles.linkButton, styles.dangerTextButton)}
-                      >
-                        Unlink SSO &amp; convert to cookie account
-                      </button>
-                    ) : (
-                      <div className={cx(styles.panel, styles.panelDanger)}>
-                        <p className={styles.errorText}>
-                          This will disconnect your Google account. Your data
-                          will be stored only in this browser. Are you sure?
-                        </p>
-                        <div className={styles.fieldRow}>
-                          <button
-                            onClick={handleUnlink}
-                            disabled={unlinking}
-                            className={styles.buttonDangerSmall}
-                          >
-                            {unlinking ? "Unlinking..." : "Yes, unlink"}
-                          </button>
-                          <button
-                            onClick={() => setShowUnlinkConfirm(false)}
-                            className={styles.buttonSecondarySmall}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className={styles.stackTight}>
-                    <p className={styles.accentText}>Cookie User</p>
+                    <p className={styles.accentText}>Anonymous</p>
                     <p className={styles.accentText}>
                       Your identity is stored in this browser only. Link a
                       Google account to access your data from any device.

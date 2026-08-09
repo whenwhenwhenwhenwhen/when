@@ -3,14 +3,14 @@ import { useMutation, useQuery } from "convex/react";
 import { useNavigate } from "react-router";
 import { api } from "../../convex/_generated/api";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
-import { useGoogleAuth } from "../lib/googleAuth";
+import { useGoogleAuth } from "../lib/authClient";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
 import { Header } from "./Header";
 
 export function DiscordAccountLinkPage() {
   const navigate = useNavigate();
-  const { anonymousId } = useAnonymousUser();
+  const { anonymousClaim } = useAnonymousUser();
   const { isAuthenticated, isLoading: authLoading } = useGoogleAuth();
   const [currentTime] = useState(() => Date.now());
   const [linking, setLinking] = useState(false);
@@ -27,7 +27,7 @@ export function DiscordAccountLinkPage() {
     authLoading
       ? "skip"
       : {
-          anonymousId: isAuthenticated ? undefined : anonymousId || undefined,
+          anonymousClaim: isAuthenticated ? undefined : anonymousClaim || undefined,
         },
   );
   const completeLink = useMutation(api.discord.completeDiscordUserLink);
@@ -39,7 +39,7 @@ export function DiscordAccountLinkPage() {
     try {
       const result = await completeLink({
         sessionToken: token,
-        anonymousId: isAuthenticated ? undefined : anonymousId || undefined,
+        anonymousClaim: isAuthenticated ? undefined : anonymousClaim || undefined,
       });
       if (!result.ok) {
         setError(

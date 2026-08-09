@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useLocation, useNavigate } from "react-router";
 import { api } from "../../convex/_generated/api";
-import { useGoogleAuth } from "../lib/googleAuth";
+import { useGoogleAuth } from "../lib/authClient";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AnimatedTitle } from "./AnimatedTitle";
@@ -15,7 +15,12 @@ const CALENDAR_REOPEN_SETTINGS_KEY =
 
 export function Header() {
   const { isAuthenticated, isLoading, signIn, signOut } = useGoogleAuth();
-  const { anonymousId, hasInteracted, clearAnonymousUser } = useAnonymousUser();
+  const {
+    anonymousClaim,
+    hasInteracted,
+    clearAnonymousUser,
+    startAnonymousUser,
+  } = useAnonymousUser();
   const location = useLocation();
   const navigate = useNavigate();
   const [showSettings, setShowSettings] = useState(false);
@@ -34,10 +39,10 @@ export function Header() {
     }
   }, [settingsRequested]);
 
-  // Always pass anonymousId so the query can find the profile during the
-  // transition window between SSO completion and profile linking.
+  // Google auth takes precedence server-side; anonymous callers resolve from
+  // the component-owned claim.
   const profile = useQuery(api.users.currentUserProfile, {
-    anonymousId: anonymousId || undefined,
+    anonymousClaim: anonymousClaim || undefined,
   });
 
   // Refresh cached profile image on each app access (throttled to once/24h server-side)
@@ -60,6 +65,7 @@ export function Header() {
 
   const handleLogout = () => {
     signOut();
+    startAnonymousUser();
   };
 
   const handleCloseSettings = () => {
@@ -167,7 +173,7 @@ export function Header() {
       {showSettings && profile && (
         <UserSettingsModal
           profile={profile}
-          anonymousId={anonymousId || undefined}
+          anonymousClaim={anonymousClaim || undefined}
           onClose={handleCloseSettings}
         />
       )}

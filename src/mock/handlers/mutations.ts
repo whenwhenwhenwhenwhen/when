@@ -6,6 +6,7 @@
  */
 
 import * as store from "../store";
+import { identityIdForClaim } from "../identity";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Args = Record<string, any>;
@@ -16,14 +17,15 @@ type Handler = (args: Args) => any;
 // users
 // ---------------------------------------------------------------------------
 
-function getOrCreateAnonymousProfile(args: Args) {
+function ensureProfile(args: Args) {
+  const identityId = identityIdForClaim(args.anonymousClaim);
   const existing = store
     .query("userProfiles")
-    .find((p) => p.anonymousId === args.anonymousId);
+    .find((p) => p.identityId === identityId);
   if (existing) return existing._id;
 
   return store.insert("userProfiles", {
-    anonymousId: args.anonymousId,
+    identityId,
     displayName: args.displayName,
     timezone: args.timezone,
     weekStartDay: 0,
@@ -33,10 +35,10 @@ function getOrCreateAnonymousProfile(args: Args) {
 
 function updateProfile(args: Args) {
   const profile =
-    (args.anonymousId
+    (args.anonymousClaim
       ? store
           .query("userProfiles")
-          .find((p) => p.anonymousId === args.anonymousId)
+          .find((p) => p.identityId === identityIdForClaim(args.anonymousClaim))
       : undefined) ?? store.query("userProfiles")[0];
   if (!profile) return;
 
@@ -46,16 +48,6 @@ function updateProfile(args: Args) {
   if (args.weekStartDay !== undefined) clean.weekStartDay = args.weekStartDay;
   if (args.dstNotifications !== undefined) clean.dstNotifications = args.dstNotifications;
   store.patch("userProfiles", profile._id, clean);
-}
-
-function ensureAuthProfile() {
-  // No-op in design mode — no SSO
-  return null;
-}
-
-function unlinkSso() {
-  // No-op in design mode
-  return { displayName: "Designer" };
 }
 
 function refreshProfileImageIfNeeded() {
@@ -117,10 +109,12 @@ function schedulesRemove(args: Args) {
 }
 
 function setArchived(args: Args) {
-  const profile = args.anonymousId
+  const profile = args.anonymousClaim
     ? store
         .query("userProfiles")
-        .find((item) => item.anonymousId === args.anonymousId)
+        .find((item) =>
+          item.identityId === identityIdForClaim(args.anonymousClaim),
+        )
     : undefined;
   const schedule = store.get("schedules", args.scheduleId);
   if (!profile || !schedule) return;
@@ -401,10 +395,8 @@ function noop() {
 
 export const mutationHandlers: Record<string, Handler> = {
   // users
-  "users:getOrCreateAnonymousProfile": getOrCreateAnonymousProfile,
+  "users:ensureProfile": ensureProfile,
   "users:updateProfile": updateProfile,
-  "users:ensureAuthProfile": ensureAuthProfile,
-  "users:unlinkSso": unlinkSso,
   "users:refreshProfileImageIfNeeded": refreshProfileImageIfNeeded,
 
   // schedules

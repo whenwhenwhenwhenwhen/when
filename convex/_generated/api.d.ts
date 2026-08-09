@@ -8,7 +8,7 @@
  * @module
  */
 
-import type * as authSessions from "../authSessions.js";
+import type * as auth from "../auth.js";
 import type * as calendarSources from "../calendarSources.js";
 import type * as calendarSync from "../calendarSync.js";
 import type * as crons from "../crons.js";
@@ -18,6 +18,7 @@ import type * as discordPermissions from "../discordPermissions.js";
 import type * as discordSetup from "../discordSetup.js";
 import type * as dstNotifications from "../dstNotifications.js";
 import type * as http from "../http.js";
+import type * as lib_auth from "../lib/auth.js";
 import type * as profileImages from "../profileImages.js";
 import type * as savedAvailabilities from "../savedAvailabilities.js";
 import type * as scheduleMemberships from "../scheduleMemberships.js";
@@ -33,7 +34,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  authSessions: typeof authSessions;
+  auth: typeof auth;
   calendarSources: typeof calendarSources;
   calendarSync: typeof calendarSync;
   crons: typeof crons;
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   discordSetup: typeof discordSetup;
   dstNotifications: typeof dstNotifications;
   http: typeof http;
+  "lib/auth": typeof lib_auth;
   profileImages: typeof profileImages;
   savedAvailabilities: typeof savedAvailabilities;
   scheduleMemberships: typeof scheduleMemberships;
@@ -78,4 +80,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  googlyAuth: import("@clammet/convex-googly-auth/_generated/component.js").ComponentApi<"googlyAuth">;
+};

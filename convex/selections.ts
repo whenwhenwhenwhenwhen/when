@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
+import { getCurrentProfile } from "./lib/auth";
 
 const DEFAULT_DISCORD_DEBOUNCE_MS = 60 * 1000;
 const BATCH_SET_SELECTION_LIMIT = 500;
@@ -147,38 +148,21 @@ type SelectionAccess = {
 
 async function getActorProfileId(
   ctx: MutationCtx,
-  anonymousId: string | undefined
+  anonymousClaim: string | undefined,
 ): Promise<Id<"userProfiles"> | null> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity) {
-    const authProfile = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_authUserId", (q) =>
-        q.eq("authUserId", identity.tokenIdentifier)
-      )
-      .unique();
-    return authProfile?._id ?? null;
-  }
-
-  if (!anonymousId) return null;
-  const anonymousProfile = await ctx.db
-    .query("userProfiles")
-    .withIndex("by_anonymousId", (q) => q.eq("anonymousId", anonymousId))
-    .unique();
-  if (!anonymousProfile || anonymousProfile.authUserId) return null;
-  return anonymousProfile._id;
+  return (await getCurrentProfile(ctx, anonymousClaim))?._id ?? null;
 }
 
 async function getSelectionAccess(
   ctx: MutationCtx,
   scheduleId: Id<"schedules">,
   targetProfileId: Id<"userProfiles">,
-  anonymousId: string | undefined
+  anonymousClaim: string | undefined
 ): Promise<SelectionAccess | null> {
   const [schedule, targetProfile, actorProfileId] = await Promise.all([
     ctx.db.get(scheduleId),
     ctx.db.get(targetProfileId),
-    getActorProfileId(ctx, anonymousId),
+    getActorProfileId(ctx, anonymousClaim),
   ]);
   if (!schedule || !targetProfile || !actorProfileId) return null;
 
@@ -497,14 +481,14 @@ export const set = mutation({
     exceptionDate: v.optional(v.string()),
     scheduleDayKey: v.optional(v.string()),
     scheduleTimeSlot: v.optional(v.string()),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const access = await getSelectionAccess(
       ctx,
       args.scheduleId,
       args.profileId,
-      args.anonymousId
+      args.anonymousClaim
     );
     if (!access) return null;
 
@@ -647,14 +631,14 @@ export const remove = mutation({
     timezone: v.optional(v.string()),
     scheduleDayKey: v.optional(v.string()),
     scheduleTimeSlot: v.optional(v.string()),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const access = await getSelectionAccess(
       ctx,
       args.scheduleId,
       args.profileId,
-      args.anonymousId
+      args.anonymousClaim
     );
     if (!access) return;
 
@@ -1003,7 +987,7 @@ export const batchSet = mutation({
     profileId: v.id("userProfiles"),
     timezone: v.string(),
     selections: v.array(batchSelectionValidator),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const batchStartedAt = Date.now();
@@ -1011,7 +995,7 @@ export const batchSet = mutation({
       ctx,
       args.scheduleId,
       args.profileId,
-      args.anonymousId
+      args.anonymousClaim
     );
     if (!access) return { processed: 0, scheduled: 0 };
 
@@ -1094,14 +1078,14 @@ export const clearForProfile = mutation({
   args: {
     scheduleId: v.id("schedules"),
     profileId: v.id("userProfiles"),
-    anonymousId: v.optional(v.string()),
+    anonymousClaim: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const access = await getSelectionAccess(
       ctx,
       args.scheduleId,
       args.profileId,
-      args.anonymousId
+      args.anonymousClaim
     );
     if (!access) return { deleted: 0, scheduled: false };
 
@@ -1136,4 +1120,3 @@ export const continueClearForProfile = internalMutation({
     );
   },
 });
-
