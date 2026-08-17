@@ -18,18 +18,12 @@ COPY . .
 # Build the application (no VITE_* args needed — config is injected at runtime)
 RUN pnpm run build
 
-# Stage 2: Serve
-FROM nginx:alpine
+# Stage 2: Publish the built site as a file-only image.
+#
+# This image is not meant to be run. It carries no web server or entrypoint:
+# the deployment host extracts /srv/www out of it (docker create + docker cp)
+# and the reverse proxy in front serves those files directly, with the runtime
+# /config.json rendered by the host next to them. See docs/deployment.md.
+FROM scratch
 
-# Copy built files
-COPY --from=builder /app/dist /usr/share/nginx/html
-
-# Copy nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Copy entrypoint that generates /config.json from env vars
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-
-EXPOSE 80
-
-ENTRYPOINT ["/docker-entrypoint.sh"]
+COPY --from=builder /app/dist /srv/www

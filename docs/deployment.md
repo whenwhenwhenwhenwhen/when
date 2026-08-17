@@ -7,8 +7,8 @@ frontend.
 
 - A Convex project.
 - A Google OAuth 2.0 web client.
-- A frontend host: Docker/nginx, Caddy, another static server, or any host that
-  can serve a Vite SPA.
+- A frontend host: nginx, Caddy, another static server, or any host that can
+  serve a Vite SPA.
 
 ## Convex
 
@@ -97,49 +97,37 @@ The frontend needs these public values:
 | `GOOGLE_CLIENT_ID` | Same public client ID as `AUTH_GOOGLE_ID` |
 | `DISCORD_CLIENT_ID` | Optional; only needed for Discord integration |
 
-In Docker these are environment variables. In static hosting they are written
-to `config.json`.
+They are written to a `config.json` served at the site root (see below).
 
-## Docker
+## Docker Image
 
-Run the published image:
+The published image `ghcr.io/whenwhenwhenwhenwhen/when:latest` is a file-only
+artifact built `FROM scratch`: it contains the built site under `/srv/www` and
+nothing else — no web server, no entrypoint. It cannot be run. Instead, extract
+the files and let your reverse proxy serve them:
 
 ```bash
 docker pull ghcr.io/whenwhenwhenwhenwhen/when:latest
-
-docker run -d -p 3000:80 \
-  -e CONVEX_URL=https://your-deployment.convex.cloud \
-  -e CONVEX_SITE_URL=https://your-deployment.convex.site \
-  -e GOOGLE_CLIENT_ID=your_google_client_id \
-  ghcr.io/whenwhenwhenwhenwhen/when:latest
+id=$(docker create ghcr.io/whenwhenwhenwhenwhen/when:latest true)
+docker cp "$id:/srv/www/." /path/to/dist/
+docker rm "$id"
 ```
 
-For Docker Compose, create `.env`:
-
-```env
-CONVEX_URL=https://your-deployment.convex.cloud
-CONVEX_SITE_URL=https://your-deployment.convex.site
-GOOGLE_CLIENT_ID=your_google_client_id
-```
-
-Then run:
-
-```bash
-docker compose up -d
-```
-
-Changing runtime config only requires restarting the container.
+Then follow [Static Hosting](#static-hosting) with `/path/to/dist`. Because
+the site is served from a file mount, updating means re-extracting the new
+image; nothing needs restarting.
 
 ## Static Hosting
 
-Build the app:
+Either extract `dist/` from the Docker image as above, or build it yourself:
 
 ```bash
 pnpm install
 tsc -b --pretty false && vite build
 ```
 
-Create `dist/config.json`:
+Create `dist/config.json` (or serve it from an overlay directory alongside
+`dist/` so re-extracting the image does not overwrite it):
 
 ```json
 {
@@ -150,6 +138,8 @@ Create `dist/config.json`:
 ```
 
 Serve `dist/` with an SPA fallback so unknown routes return `index.html`.
+`config.json` should not be cached; Vite's content-hashed `/assets/` can be
+cached indefinitely.
 
 nginx:
 
@@ -157,7 +147,16 @@ nginx:
 root /path/to/dist;
 index index.html;
 
+location = /config.json {
+    add_header Cache-Control "no-store" always;
+}
+
+location ^~ /assets/ {
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+
 location / {
+    add_header Cache-Control "no-cache" always;
     try_files $uri $uri/ /index.html;
 }
 ```

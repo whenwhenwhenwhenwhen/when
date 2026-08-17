@@ -41,18 +41,20 @@ For the full checklist, see `docs/deployment.md`.
    npx convex deploy
    ```
 
-5. Run the frontend with runtime config:
+5. Serve the frontend with runtime config. Build `dist/` locally or extract it
+   from the published file-only image (`docker create` + `docker cp` from
+   `/srv/www`), then write `dist/config.json`:
 
-   ```bash
-   docker run -d -p 3000:80 \
-     -e CONVEX_URL=https://your-deployment.convex.cloud \
-     -e CONVEX_SITE_URL=https://your-deployment.convex.site \
-     -e GOOGLE_CLIENT_ID=your_google_client_id \
-     ghcr.io/whenwhenwhenwhenwhen/when:latest
+   ```json
+   {
+     "CONVEX_URL": "https://your-deployment.convex.cloud",
+     "CONVEX_SITE_URL": "https://your-deployment.convex.site",
+     "GOOGLE_CLIENT_ID": "your_google_client_id"
+   }
    ```
 
-   The same values can be written to `dist/config.json` if serving static
-   files without Docker.
+   Serve `dist/` with any static host that has an SPA fallback. See
+   [docs/deployment.md](docs/deployment.md) for details.
 
 ## Local Development
 
