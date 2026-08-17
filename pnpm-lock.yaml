@@ -10,10 +10,10 @@ importers:
     dependencies:
       '@clammet/convex-googly-auth':
         specifier: ^0.1.0
-        version: 0.1.0(convex@1.43.0(react@19.2.8))(react@19.2.8)
+        version: 0.1.0(convex@1.44.0(react@19.2.8))(react@19.2.8)
       convex:
-        specifier: ^1.43.0
-        version: 1.43.0(react@19.2.8)
+        specifier: ^1.44.0
+        version: 1.44.0(react@19.2.8)
       lucide-react:
         specifier: ^1.28.0
         version: 1.28.0(react@19.2.8)
@@ -53,7 +53,7 @@ importers:
         version: 10.0.4
       convex-test:
         specifier: ^0.0.55
-        version: 0.0.55(convex@1.43.0(react@19.2.8))
+        version: 0.0.55(convex@1.44.0(react@19.2.8))
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1
@@ -655,8 +655,8 @@ packages:
     peerDependencies:
       convex: ^1.43.0
 
-  convex@1.43.0:
-    resolution: {integrity: sha512-huZWEUZQYxIRG104o22ZI99HkviSEVltwezZRDi+pQDPrQbc5EoCPa4Y7pJDqUBQw9dc/iEEXj2/rLZg1j7Dww==}
+  convex@1.44.0:
+    resolution: {integrity: sha512-84bBa1ufSX4qohXdycXuQl2c2kAmfVpTCpypcmIgxpS5rUBgv5qjhArYugTkJVbljMs5SH2mW30bjJo+SQwe1w==}
     engines: {node: '>=18.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
@@ -900,8 +900,8 @@ packages:
     resolution: {integrity: sha512-DTPx3RWSSnWyzLxQnlH0rJP+EW5ekl16ZU4/psbIhA0e53kJfdgaN5vKM+xP7yJtXVu+nfdVFmlgFDEKAe4Pyw==}
     engines: {node: ^10 || ^12 || >=14}
 
-  prettier@3.8.4:
-    resolution: {integrity: sha512-N2MylSdi48+5N/6S5j+maeHbUSIzzZ5uOcX5Hm4QpV8Dkb1HFjfAKTKX6yNPJQD9AhcT3ifHNB66tWTTJDi11Q==}
+  prettier@3.9.6:
+    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -1210,9 +1210,9 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@clammet/convex-googly-auth@0.1.0(convex@1.43.0(react@19.2.8))(react@19.2.8)':
+  '@clammet/convex-googly-auth@0.1.0(convex@1.44.0(react@19.2.8))(react@19.2.8)':
     dependencies:
-      convex: 1.43.0(react@19.2.8)
+      convex: 1.44.0(react@19.2.8)
       react: 19.2.8
 
   '@csstools/color-helpers@6.1.0': {}
@@ -1561,14 +1561,14 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex-test@0.0.55(convex@1.43.0(react@19.2.8)):
+  convex-test@0.0.55(convex@1.44.0(react@19.2.8)):
     dependencies:
-      convex: 1.43.0(react@19.2.8)
+      convex: 1.44.0(react@19.2.8)
 
-  convex@1.43.0(react@19.2.8):
+  convex@1.44.0(react@19.2.8):
     dependencies:
       esbuild: 0.27.0
-      prettier: 3.8.4
+      prettier: 3.9.6
       ws: 8.21.0
     optionalDependencies:
       react: 19.2.8
@@ -1780,7 +1780,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  prettier@3.8.4: {}
+  prettier@3.9.6: {}
 
   pretty-format@27.5.1:
     dependencies:
