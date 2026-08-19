@@ -1,0 +1,101 @@
+// Repository config for the self-hosted Renovate runner
+// (.github/workflows/renovate.yml). Policy: everything is pinned exactly, and
+// every upstream release becomes a PR. CI proves the bump; green minor, patch,
+// and digest PRs merge themselves; majors and red PRs wait for a human.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  // config:best-practices pins Docker images and GitHub Actions by digest,
+  // pins devDependencies, and keeps this file migrated to current option
+  // names. :pinAllExceptPeerDependencies extends exact pins to production
+  // dependencies: this is an app, nothing downstream consumes its ranges.
+  extends: [
+    'config:best-practices',
+    ':pinAllExceptPeerDependencies',
+  ],
+
+  // Let a release age on the registry before adopting it. A version that is
+  // unpublished, hot-patched, or pulled for a supply-chain issue is usually
+  // caught within days, and none of these updates are urgent enough to
+  // justify being the first consumer. Patches wait less, majors wait more
+  // (packageRules below); pnpm-workspace.yaml enforces its own one-day floor
+  // at resolution time.
+  minimumReleaseAge: '3 days',
+
+  // Transitive dependencies have no direct version to bump, so refresh the
+  // whole lockfile on a weekly PR. Same gate as everything else: CI proves
+  // it, then it merges itself.
+  lockFileMaintenance: {
+    enabled: true,
+    automerge: true,
+  },
+
+  // A published advisory against a currently pinned version raises a fix PR
+  // immediately, skipping minimumReleaseAge. The weekly CVE scan is the
+  // backstop; this is the fast path.
+  osvVulnerabilityAlerts: true,
+
+  packageRules: [
+    {
+      matchUpdateTypes: ['patch'],
+      minimumReleaseAge: '1 day',
+    },
+    {
+      matchUpdateTypes: ['major'],
+      minimumReleaseAge: '7 days',
+    },
+    {
+      // Our own packages: we cut the release, so there is no third party to
+      // wait out. Mirrors minimumReleaseAgeExclude in pnpm-workspace.yaml.
+      matchPackageNames: ['@clammet/**'],
+      minimumReleaseAge: '0 days',
+    },
+    {
+      // The automerge rule. Majors are deliberately absent: they get a PR
+      // and wait for a human. Platform automerge goes through GitHub's
+      // auto-merge, which waits for the required status checks on main, so
+      // nothing lands without a green CI run.
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'pinDigest', 'digest'],
+      automerge: true,
+    },
+    {
+      // React, its renderer, its router, and their types move together.
+      groupName: 'react',
+      matchPackageNames: [
+        'react',
+        'react-dom',
+        'react-router',
+        '@types/react',
+        '@types/react-dom',
+      ],
+    },
+    {
+      // TypeScript does not follow semver for type checking: even minors can
+      // introduce new errors in unchanged code (CI catches those). Majors are
+      // adopted deliberately, so they wait behind a dashboard checkbox
+      // instead of opening a PR on their own.
+      matchPackageNames: ['typescript'],
+      matchUpdateTypes: ['major'],
+      dependencyDashboardApproval: true,
+    },
+    {
+      // @types/node majors track the Node.js major, which is pinned to the
+      // LTS line (see the node rule below). The types move with the runtime,
+      // not ahead of it.
+      matchPackageNames: ['@types/node'],
+      matchUpdateTypes: ['major'],
+      dependencyDashboardApproval: true,
+    },
+    {
+      // Node majors alternate between LTS (even) and short-lived current
+      // (odd) lines, and a bot cannot tell them apart. Moving the runtime is
+      // a deliberate choice tied to the LTS calendar, so majors of the
+      // Dockerfile base image and .nvmrc wait for dashboard approval while
+      // minors, patches, and digests flow automatically.
+      matchDepNames: ['node'],
+      matchDatasources: ['docker', 'node-version'],
+      matchUpdateTypes: ['major'],
+      dependencyDashboardApproval: true,
+    },
+  ],
+}

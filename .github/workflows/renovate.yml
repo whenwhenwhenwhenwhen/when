@@ -1,0 +1,65 @@
+name: Renovate
+
+# Self-hosted Renovate runner. Repository policy lives in renovate.json5;
+# this workflow only provides the schedule and credentials. PRs are opened as
+# the clammet-renovate GitHub App, installed org-wide: the first step trades
+# the app's id and private key for a short-lived installation token scoped to
+# this repository. The app has write access to contents, issues, pull
+# requests, statuses, and workflows (`workflows` because pinned actions mean
+# Renovate edits files under .github/workflows). An app rather than
+# GITHUB_TOKEN so the PRs it opens still trigger CI.
+
+on:
+  schedule:
+    # Every six hours: often enough that a release, its aged-out
+    # minimumReleaseAge window, and the automerge of the resulting green PR
+    # all happen without anyone remembering to run something.
+    - cron: "23 1,7,13,19 * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Log what would happen without opening or merging anything
+        type: boolean
+        default: false
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+# The default token stays read-only; everything that writes goes through
+# the app's installation token.
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    name: Run Renovate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check required secrets
+        env:
+          RENOVATE_APP_ID: ${{ secrets.RENOVATE_APP_ID }}
+          RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+        run: |
+          test -n "$RENOVATE_APP_ID"
+          test -n "$RENOVATE_APP_PRIVATE_KEY"
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Mint installation token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # Empty string disables dry-run; only the manual trigger can set it.
+          RENOVATE_DRY_RUN: ${{ inputs.dry-run && 'full' || '' }}

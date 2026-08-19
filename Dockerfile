@@ -1,5 +1,5 @@
 # Stage 1: Build the architecture-independent frontend on the native platform
-FROM --platform=$BUILDPLATFORM node:24-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS builder
 
 # Enable corepack for pnpm
 RUN corepack enable pnpm
