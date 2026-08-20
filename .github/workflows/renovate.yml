@@ -3,7 +3,8 @@ name: Renovate
 # Self-hosted Renovate runner. Repository policy lives in renovate.json5;
 # this workflow only provides the schedule and credentials. PRs are opened as
 # the clammet-renovate GitHub App, installed org-wide: the first step trades
-# the app's id and private key for a short-lived installation token scoped to
+# the app's client ID (variable RENOVATE_APP_CLIENT_ID) and private key (secret
+# RENOVATE_APP_PRIVATE_KEY) for a short-lived installation token scoped to
 # this repository. The app has write access to contents, issues, pull
 # requests, statuses, and workflows (`workflows` because pinned actions mean
 # Renovate edits files under .github/workflows). An app rather than
@@ -32,6 +33,14 @@ permissions:
   actions: write
   contents: read
 
+env:
+  # Exact Renovate engine pin; the action's own default is the floating `44`
+  # tag. Renovate bumps it weekly through the customManagers:githubActionsVersions
+  # preset in the repo's Renovate config (the annotation must stay on the line
+  # directly above the variable).
+  # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
+  RENOVATE_VERSION: 44.35.4
+
 jobs:
   renovate:
     name: Run Renovate
@@ -52,12 +61,12 @@ jobs:
               gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${id}/enable"
             done
 
-      - name: Check required secrets
+      - name: Check required credentials
         env:
-          RENOVATE_APP_ID: ${{ secrets.RENOVATE_APP_ID }}
+          RENOVATE_APP_CLIENT_ID: ${{ vars.RENOVATE_APP_CLIENT_ID }}
           RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
         run: |
-          test -n "$RENOVATE_APP_ID"
+          test -n "$RENOVATE_APP_CLIENT_ID"
           test -n "$RENOVATE_APP_PRIVATE_KEY"
 
       - name: Check out repository
@@ -65,15 +74,38 @@ jobs:
 
       - name: Mint installation token
         id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      # GitHub's GraphQL API enforces an organisation's IP allow list against
+      # GitHub App tokens even for that org's public repos (aquasecurity has
+      # one), so the App token's github-tags lookup for aquasecurity/trivy-action
+      # fails with "IP allow list enabled" and the action is never updated.
+      # User tokens are not subject to it, so these host rules route only the
+      # github.com datasource lookups through a scope-less classic PAT of the
+      # yuzuyu-bot machine user (secret RENOVATE_GITHUB_LOOKUP_TOKEN; same
+      # token in every repo of the fleet). The App token still does all
+      # platform work (PRs, merges).
+      - name: Route github.com datasource lookups through a user token
+        env:
+          LOOKUP_TOKEN: ${{ secrets.RENOVATE_GITHUB_LOOKUP_TOKEN }}
+        run: |
+          if [ -z "$LOOKUP_TOKEN" ]; then
+            echo "::warning::RENOVATE_GITHUB_LOOKUP_TOKEN is not set; github-tags lookups for orgs with an IP allow list (aquasecurity/trivy-action) will fail"
+            exit 0
+          fi
+          rules=$(jq -cn --arg t "$LOOKUP_TOKEN" \
+            '["github-tags", "github-releases", "github-changelog"]
+             | map({hostType: ., matchHost: "api.github.com", token: $t})')
+          echo "RENOVATE_HOST_RULES=$rules" >> "$GITHUB_ENV"
 
       - name: Run Renovate
         uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2
         with:
           token: ${{ steps.app-token.outputs.token }}
+          renovate-version: ${{ env.RENOVATE_VERSION }}
         env:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           # Empty string disables dry-run; only the manual trigger can set it.

@@ -12,14 +12,15 @@
   extends: [
     'config:best-practices',
     ':pinAllExceptPeerDependencies',
+    'customManagers:githubActionsVersions',
   ],
 
   // Let a release age on the registry before adopting it. A version that is
   // unpublished, hot-patched, or pulled for a supply-chain issue is usually
   // caught within days, and none of these updates are urgent enough to
-  // justify being the first consumer. Patches wait less, majors wait more
-  // (packageRules below); pnpm-workspace.yaml enforces its own one-day floor
-  // at resolution time.
+  // justify being the first consumer. Fleet-standard three days for every
+  // update type; pnpm-workspace.yaml enforces its own one-day floor at
+  // resolution time, which this stays above.
   minimumReleaseAge: '3 days',
 
   // Transitive dependencies have no direct version to bump, so refresh the
@@ -39,14 +40,6 @@
   osvVulnerabilityAlerts: true,
 
   packageRules: [
-    {
-      matchUpdateTypes: ['patch'],
-      minimumReleaseAge: '1 day',
-    },
-    {
-      matchUpdateTypes: ['major'],
-      minimumReleaseAge: '7 days',
-    },
     {
       // Our own packages: we cut the release, so there is no third party to
       // wait out. Mirrors minimumReleaseAgeExclude in pnpm-workspace.yaml.
@@ -99,6 +92,17 @@
       matchDatasources: ['docker', 'node-version'],
       matchUpdateTypes: ['major'],
       dependencyDashboardApproval: true,
+    },
+    {
+      description: 'Pins and digest refreshes point at code that already shipped - no soak needed',
+      matchUpdateTypes: ['pin', 'pinDigest', 'digest'],
+      minimumReleaseAge: null,
+    },
+    {
+      description: 'Renovate engine: several releases a day, so take the weekly one; no digest pin because the annotated RENOVATE_VERSION env var holds a plain tag',
+      matchDepNames: ['ghcr.io/renovatebot/renovate'],
+      schedule: ['before 6am on monday'],
+      pinDigests: false,
     },
   ],
 }
