@@ -31,8 +31,11 @@
   },
 
   // A published advisory against a currently pinned version raises a fix PR
-  // immediately, skipping minimumReleaseAge. The weekly CVE scan is the
-  // backstop; this is the fast path.
+  // immediately, skipping minimumReleaseAge. Two feeds land here: GitHub
+  // Dependabot alerts, which the app's Dependabot read access lets Renovate
+  // consume (alerts are on for this repo, Dependabot's own fix PRs are off
+  // so Renovate is the only thing opening PRs), and OSV via the flag below.
+  // The weekly CVE scan is the backstop.
   osvVulnerabilityAlerts: true,
 
   packageRules: [
