@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@clammet/convex-googly-auth':
-        specifier: 0.1.1
-        version: 0.1.1(convex@1.43.0(react@19.2.8))(react@19.2.8)
+        specifier: 1.0.0
+        version: 1.0.0(convex@1.43.0(react@19.2.8))(react@19.2.8)
       convex:
         specifier: 1.43.0
         version: 1.43.0(react@19.2.8)
@@ -93,8 +93,8 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
-  '@clammet/convex-googly-auth@0.1.1':
-    resolution: {integrity: sha512-owpIEOxWXWwQI5oHwK6L0NWVOTIsKaeNmoyLKYD9RvLrsDf/ZN8SiIoAm4lUq9vZcjCdwEzpuxN7prQmxx+l7A==}
+  '@clammet/convex-googly-auth@1.0.0':
+    resolution: {integrity: sha512-uaG2aZ2yH/GkfCGAQwcAjTmQ5AFP2ltpofYiq0vwUWXd5LTuOV+/Em7gpOMCsryVNL5i8yEuOfzMwcdJ9SfZ8g==}
     peerDependencies:
       convex: ^1.43.0
       react: ^18.3.1 || ^19.0.0
@@ -1212,7 +1212,7 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@clammet/convex-googly-auth@0.1.1(convex@1.43.0(react@19.2.8))(react@19.2.8)':
+  '@clammet/convex-googly-auth@1.0.0(convex@1.43.0(react@19.2.8))(react@19.2.8)':
     dependencies:
       convex: 1.43.0(react@19.2.8)
       react: 19.2.8
