@@ -19,7 +19,7 @@
     "docker:deploy": "pnpm docker:build"
   },
   "dependencies": {
-    "@clammet/convex-googly-auth": "1.0.0",
+    "@clammet/convex-googly-auth": "1.0.1",
     "convex": "1.43.0",
     "lucide-react": "1.34.0",
     "luxon": "3.7.2",
