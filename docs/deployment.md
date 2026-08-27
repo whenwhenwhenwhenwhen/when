@@ -106,13 +106,18 @@ artifact built `FROM scratch`: it contains the built site under `/srv/www` and
 nothing else — no web server, no entrypoint. It cannot be run. Instead, extract
 the files and let your reverse proxy serve them.
 
-Every deploy publishes the same manifest under three names:
+After CI succeeds on `main`, the `Publish image` workflow builds that exact
+revision. Image publication is independent of the Convex production deployment,
+so disabling or failing that deployment cannot leave the registry on an
+obsolete Dockerfile.
+
+Every image publication writes the same manifest under three names:
 
 | Reference | Meaning |
 | --- | --- |
-| `when@sha256:...` | Immutable digest, printed in the deploy run's job summary |
+| `when@sha256:...` | Immutable digest, printed in the publish run's job summary |
 | `when:sha-<commit>` | The commit that produced it |
-| `when:latest` | Whatever deployed last |
+| `when:latest` | Whatever was published last |
 
 Pin the digest on the deployment host, so the host serves exactly what CI
 built and tested, and let host-side automation bump the pin (Renovate updates
@@ -120,7 +125,7 @@ Docker digests in infra repos the same way it updates them here). `latest` is
 fine for a one-off look, not for the pin.
 
 ```bash
-image=ghcr.io/whenwhenwhenwhenwhen/when@sha256:...  # from the deploy job summary
+image=ghcr.io/whenwhenwhenwhenwhen/when@sha256:...  # from the Publish image job summary
 docker pull "$image"
 id=$(docker create "$image" true)
 docker cp "$id:/srv/www/." /path/to/dist/

@@ -94,6 +94,13 @@
       dependencyDashboardApproval: true,
     },
     {
+      // Corepack's packageManager field accepts a version or a hex-encoded
+      // integrity suffix. npm's base64 SRI is not valid semver build metadata,
+      // so Renovate must not append it here (the Docker build exercises this).
+      matchDepNames: ['pnpm'],
+      pinDigests: false,
+    },
+    {
       description: 'Pins and digest refreshes point at code that already shipped - no soak needed',
       matchUpdateTypes: ['pin', 'pinDigest', 'digest'],
       minimumReleaseAge: null,
