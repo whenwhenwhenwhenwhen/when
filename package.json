@@ -35,7 +35,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "concurrently": "10.0.5",
-    "convex-test": "0.0.55",
+    "convex-test": "0.0.56",
     "jsdom": "30.0.1",
     "typescript": "7.0.2",
     "vite": "8.2.1",
