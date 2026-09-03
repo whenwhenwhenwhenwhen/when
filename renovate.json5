@@ -29,7 +29,13 @@
   lockFileMaintenance: {
     enabled: true,
     automerge: true,
+    // Rebase onto main before merge so CI ran against the current base.
+    rebaseWhen: 'behind-base-branch',
   },
+
+  // Explicit so the soak policy is visible in one place (config:best-practices
+  // already turns the dashboard on).
+  dependencyDashboard: true,
 
   // A published advisory against a currently pinned version raises a fix PR
   // immediately, skipping minimumReleaseAge. Two feeds land here: GitHub
@@ -53,6 +59,13 @@
       // nothing lands without a green CI run.
       matchUpdateTypes: ['minor', 'patch', 'pin', 'pinDigest', 'digest'],
       automerge: true,
+      // Rebase onto main before merge so CI ran against the current base.
+      rebaseWhen: 'behind-base-branch',
+    },
+    {
+      // Majors get a PR (never automerged, see above) and soak a week.
+      matchUpdateTypes: ['major'],
+      minimumReleaseAge: '7 days',
     },
     {
       // React, its renderer, its router, and their types move together.
@@ -101,9 +114,13 @@
       pinDigests: false,
     },
     {
-      description: 'Pins and digest refreshes point at code that already shipped - no soak needed',
-      matchUpdateTypes: ['pin', 'pinDigest', 'digest'],
-      minimumReleaseAge: null,
+      // Supply-chain soak: never automerge a GitHub Actions digest change. A
+      // moved tag on a SHA-pinned action shows up as a digest update; a human
+      // compares it against the upstream release first.
+      description: 'Never automerge GitHub Actions digest changes',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['digest', 'pinDigest'],
+      automerge: false,
     },
     {
       description: 'Renovate engine: several releases a day, so take the weekly one; no digest pin because the annotated RENOVATE_VERSION env var holds a plain tag',
