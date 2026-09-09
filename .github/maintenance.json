@@ -1,0 +1,20 @@
+{
+  "workflow": "cve-scan.yml",
+  "images": [
+    {
+      "ref": "ghcr.io/whenwhenwhenwhenwhen/when:latest",
+      "scope": "published image",
+      "sarif": true,
+      "category": "trivy-image"
+    }
+  ],
+  "build_workflow": "publish-image.yml",
+  "filesystem": true,
+  "ci_workflow": "ci.yml",
+  "retry_workflows": [
+    "renovate.yml",
+    "cve-scan.yml",
+    "ci.yml",
+    "publish-image.yml"
+  ]
+}

@@ -1,132 +1,138 @@
-// Repository config for the self-hosted Renovate runner
-// (.github/workflows/renovate.yml). Policy: everything is pinned exactly, and
-// every upstream release becomes a PR. CI proves the bump; green minor, patch,
-// and digest PRs merge themselves; majors and red PRs wait for a human.
 {
-  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
-
-  // config:best-practices pins Docker images and GitHub Actions by digest,
-  // pins devDependencies, and keeps this file migrated to current option
-  // names. :pinAllExceptPeerDependencies extends exact pins to production
-  // dependencies: this is an app, nothing downstream consumes its ranges.
-  extends: [
-    'config:best-practices',
-    ':pinAllExceptPeerDependencies',
-    'customManagers:githubActionsVersions',
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    ":pinAllExceptPeerDependencies",
+    "customManagers:githubActionsVersions"
   ],
-
-  // Let a release age on the registry before adopting it. A version that is
-  // unpublished, hot-patched, or pulled for a supply-chain issue is usually
-  // caught within days, and none of these updates are urgent enough to
-  // justify being the first consumer. Fleet-standard three days for every
-  // update type; pnpm-workspace.yaml enforces its own one-day floor at
-  // resolution time, which this stays above.
-  minimumReleaseAge: '3 days',
-
-  // Transitive dependencies have no direct version to bump, so refresh the
-  // whole lockfile on a weekly PR. Same gate as everything else: CI proves
-  // it, then it merges itself.
-  lockFileMaintenance: {
-    enabled: true,
-    automerge: true,
-    // Rebase onto main before merge so CI ran against the current base.
-    rebaseWhen: 'behind-base-branch',
+  "minimumReleaseAge": "3 days",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "rebaseWhen": "behind-base-branch"
   },
-
-  // Explicit so the soak policy is visible in one place (config:best-practices
-  // already turns the dashboard on).
-  dependencyDashboard: true,
-
-  // A published advisory against a currently pinned version raises a fix PR
-  // immediately, skipping minimumReleaseAge. Two feeds land here: GitHub
-  // Dependabot alerts, which the app's Dependabot read access lets Renovate
-  // consume (alerts are on for this repo, Dependabot's own fix PRs are off
-  // so Renovate is the only thing opening PRs), and OSV via the flag below.
-  // The weekly CVE scan is the backstop.
-  osvVulnerabilityAlerts: true,
-
-  packageRules: [
+  "dependencyDashboard": true,
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
     {
-      // Our own packages: we cut the release, so there is no third party to
-      // wait out. Mirrors minimumReleaseAgeExclude in pnpm-workspace.yaml.
-      matchPackageNames: ['@clammet/**'],
-      minimumReleaseAge: '0 days',
-    },
-    {
-      // The automerge rule. Majors are deliberately absent: they get a PR
-      // and wait for a human. Platform automerge goes through GitHub's
-      // auto-merge, which waits for the required status checks on main, so
-      // nothing lands without a green CI run.
-      matchUpdateTypes: ['minor', 'patch', 'pin', 'pinDigest', 'digest'],
-      automerge: true,
-      // Rebase onto main before merge so CI ran against the current base.
-      rebaseWhen: 'behind-base-branch',
-    },
-    {
-      // Majors get a PR (never automerged, see above) and soak a week.
-      matchUpdateTypes: ['major'],
-      minimumReleaseAge: '7 days',
-    },
-    {
-      // React, its renderer, its router, and their types move together.
-      groupName: 'react',
-      matchPackageNames: [
-        'react',
-        'react-dom',
-        'react-router',
-        '@types/react',
-        '@types/react-dom',
+      "matchPackageNames": [
+        "@clammet/**"
       ],
+      "minimumReleaseAge": "0 days"
     },
     {
-      // TypeScript does not follow semver for type checking: even minors can
-      // introduce new errors in unchanged code (CI catches those). Majors are
-      // adopted deliberately, so they wait behind a dashboard checkbox
-      // instead of opening a PR on their own.
-      matchPackageNames: ['typescript'],
-      matchUpdateTypes: ['major'],
-      dependencyDashboardApproval: true,
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "automerge": true,
+      "rebaseWhen": "behind-base-branch"
     },
     {
-      // @types/node majors track the Node.js major, which is pinned to the
-      // LTS line (see the node rule below). The types move with the runtime,
-      // not ahead of it.
-      matchPackageNames: ['@types/node'],
-      matchUpdateTypes: ['major'],
-      dependencyDashboardApproval: true,
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "minimumReleaseAge": "7 days",
+      "automerge": true,
+      "dependencyDashboardApproval": false,
+      "description": "Attempt major updates automatically after a week; CI must pass before merge"
     },
     {
-      // Node majors alternate between LTS (even) and short-lived current
-      // (odd) lines, and a bot cannot tell them apart. Moving the runtime is
-      // a deliberate choice tied to the LTS calendar, so majors of the
-      // Dockerfile base image and .nvmrc wait for dashboard approval while
-      // minors, patches, and digests flow automatically.
-      matchDepNames: ['node'],
-      matchDatasources: ['docker', 'node-version'],
-      matchUpdateTypes: ['major'],
-      dependencyDashboardApproval: true,
+      "groupName": "react",
+      "matchPackageNames": [
+        "react",
+        "react-dom",
+        "react-router",
+        "@types/react",
+        "@types/react-dom"
+      ]
     },
     {
-      // Corepack's packageManager field accepts a version or a hex-encoded
-      // integrity suffix. npm's base64 SRI is not valid semver build metadata,
-      // so Renovate must not append it here (the Docker build exercises this).
-      matchDepNames: ['pnpm'],
-      pinDigests: false,
+      "matchPackageNames": [
+        "typescript"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": false,
+      "automerge": true,
+      "minimumReleaseAge": "7 days",
+      "description": "Attempt major updates automatically after a week; CI must pass before merge"
     },
     {
-      // Supply-chain soak: never automerge a GitHub Actions digest change. A
-      // moved tag on a SHA-pinned action shows up as a digest update; a human
-      // compares it against the upstream release first.
-      description: 'Never automerge GitHub Actions digest changes',
-      matchManagers: ['github-actions'],
-      matchUpdateTypes: ['digest', 'pinDigest'],
-      automerge: false,
+      "matchPackageNames": [
+        "@types/node"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": false,
+      "automerge": true,
+      "minimumReleaseAge": "7 days",
+      "description": "Attempt major updates automatically after a week; CI must pass before merge"
     },
     {
-      description: 'Renovate engine: several releases a day, so take the weekly one; no digest pin because the annotated RENOVATE_VERSION env var holds a plain tag',
-      matchDepNames: ['ghcr.io/renovatebot/renovate'],
-      schedule: ['before 6am on monday'],
-      pinDigests: false,
+      "matchDepNames": [
+        "node"
+      ],
+      "matchDatasources": [
+        "docker",
+        "node-version"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": false,
+      "automerge": true,
+      "minimumReleaseAge": "7 days",
+      "description": "Attempt major updates automatically after a week; CI must pass before merge"
     },
+    {
+      "matchDepNames": [
+        "pnpm"
+      ],
+      "pinDigests": false
+    },
+    {
+      "description": "Never automerge GitHub Actions digest changes",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "pinDigest"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Renovate engine: several releases a day, so take the weekly one; no digest pin because the annotated RENOVATE_VERSION env var holds a plain tag",
+      "matchDepNames": [
+        "ghcr.io/renovatebot/renovate"
+      ],
+      "schedule": [
+        "before 6am on monday"
+      ],
+      "pinDigests": false
+    },
+    {
+      "description": "Keep Node image, CI runtime, and Node types in one tested PR",
+      "matchPackageNames": [
+        "node",
+        "@types/node"
+      ],
+      "groupName": "Node runtime"
+    }
   ],
+  "timezone": "Australia/Melbourne",
+  "platformAutomerge": false,
+  "rebaseWhen": "behind-base-branch",
+  "prHourlyLimit": 0,
+  "description": "Renovate owns dependency updates. Tested updates merge after the release soak; unresolved maintenance is reported by the maintenance workflows. See .github/MAINTENANCE.md.",
+  "automergeType": "pr",
+  "vulnerabilityAlerts": {
+    "automerge": true
+  }
 }
