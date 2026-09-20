@@ -168,10 +168,10 @@ importers:
     dependencies:
       '@clammet/convex-googly-auth':
         specifier: 1.0.1
-        version: 1.0.1(convex@1.45.0(react@19.3.0))(react@19.3.0)
+        version: 1.0.1(convex@1.46.0(react@19.3.0))(react@19.3.0)
       convex:
-        specifier: 1.45.0
-        version: 1.45.0(react@19.3.0)
+        specifier: 1.46.0
+        version: 1.46.0(react@19.3.0)
       lucide-react:
         specifier: 1.46.0
         version: 1.46.0(react@19.3.0)
@@ -211,7 +211,7 @@ importers:
         version: 10.0.5
       convex-test:
         specifier: 0.0.58
-        version: 0.0.58(convex@1.45.0(react@19.3.0))
+        version: 0.0.58(convex@1.46.0(react@19.3.0))
       jsdom:
         specifier: 30.0.1
         version: 30.0.1
@@ -808,8 +808,8 @@ packages:
     peerDependencies:
       convex: ^1.43.0
 
-  convex@1.45.0:
-    resolution: {integrity: sha512-AV3B56Ptu/14d76g3urBJ50dwpiZa6uJaLT84OWox5aCwZIJiuAamdjv3lLHDzs8vv5kC31anEZohhUe3qJ2bA==}
+  convex@1.46.0:
+    resolution: {integrity: sha512-dhBwDQTZDOhi5SUGAX17EWNehCdNq6/UFrSL0eLZuGfMkdsQbCVWVRZCzbZ5CF+/pgvoGxtApbEoTSipqL4JTw==}
     engines: {node: '>=20.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
@@ -1349,9 +1349,9 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@clammet/convex-googly-auth@1.0.1(convex@1.45.0(react@19.3.0))(react@19.3.0)':
+  '@clammet/convex-googly-auth@1.0.1(convex@1.46.0(react@19.3.0))(react@19.3.0)':
     dependencies:
-      convex: 1.45.0(react@19.3.0)
+      convex: 1.46.0(react@19.3.0)
       react: 19.3.0
 
   '@csstools/color-helpers@6.1.1': {}
@@ -1678,11 +1678,11 @@ snapshots:
       tree-kill: 1.2.2
       yargs: 18.0.0
 
-  convex-test@0.0.58(convex@1.45.0(react@19.3.0)):
+  convex-test@0.0.58(convex@1.46.0(react@19.3.0)):
     dependencies:
-      convex: 1.45.0(react@19.3.0)
+      convex: 1.46.0(react@19.3.0)
 
-  convex@1.45.0(react@19.3.0):
+  convex@1.46.0(react@19.3.0):
     dependencies:
       esbuild: 0.27.0
       prettier: 3.9.6
