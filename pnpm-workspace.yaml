@@ -1,8 +1,13 @@
-minimumReleaseAge: 1440
+minimumReleaseAge: 4320
 minimumReleaseAgeStrict: true
 minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeExclude:
-  - "@clammet/*"
+  - "@clammet/convex-googly-auth"
 
 allowBuilds:
   esbuild: true
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+verifyStoreIntegrity: true
+strictStorePkgContentCheck: true
+saveExact: true
