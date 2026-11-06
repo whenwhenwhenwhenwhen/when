@@ -1649,6 +1649,11 @@ input:disabled {
   border-color: var(--color-border-strong);
 }
 
+tr:has(> .gridCell:hover) > .timeCell {
+  color: var(--color-accent-soft-text);
+  background: var(--color-accent-soft);
+}
+
 .stateCanDo {
   background-color: var(--color-can-do-bg);
 }

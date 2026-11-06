@@ -9,28 +9,34 @@ Prerequisites:
 - Node.js 22+
 - pnpm
 
-Install dependencies:
+For a new checkout, install dependencies and create the local environment file:
 
 ```bash
 pnpm install
+cp .env.example .env.local
 ```
 
-Start Convex once to create `.env.local` and generate types:
+Set `VITE_GOOGLE_CLIENT_ID` in `.env.local` and initialize Convex. The CLI saves
+the anonymous deployment name and its localhost URLs in `.env.local`.
 
 ```bash
-npx convex dev
+pnpm exec convex init
 ```
 
-Add local frontend OAuth values:
+Set `AUTH_GOOGLE_ID` to the same Google client ID on the local backend and set
+the URL that OAuth should return to.
 
-```env
-VITE_CONVEX_SITE_URL=https://your-deployment.convex.site
-VITE_GOOGLE_CLIENT_ID=your_google_client_id
+```bash
+pnpm exec convex env set AUTH_GOOGLE_ID your_google_client_id
+pnpm exec convex env set SITE_URL http://localhost:5173
 ```
 
-Set matching Convex env vars, including `SITE_URL=http://localhost:5173`.
+For Google sign-in and Calendar sync, also set `AUTH_GOOGLE_SECRET` on the
+local deployment with `pnpm exec convex env set AUTH_GOOGLE_SECRET`. In Google
+Cloud, register `/auth/google/callback` and `/auth/google/calendar-callback`
+under the exact origin in `VITE_CONVEX_SITE_URL`.
 
-Run the app:
+Start Vite and Convex together:
 
 ```bash
 pnpm dev

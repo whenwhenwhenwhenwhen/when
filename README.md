@@ -58,28 +58,9 @@ For the full checklist, see `docs/deployment.md`.
 
 ## Local Development
 
-Prerequisites: Node.js 22+ and pnpm.
-
-```bash
-pnpm install
-npx convex dev
-```
-
-Add the Google values to `.env.local` after Convex creates it:
-
-```env
-VITE_CONVEX_SITE_URL=https://your-deployment.convex.site
-VITE_GOOGLE_CLIENT_ID=your_google_client_id
-```
-
-Set the matching Convex env vars from the deploy quickstart, using
-`SITE_URL=http://localhost:5173` for local development, then run:
-
-```bash
-pnpm dev
-```
-
-The app runs at `http://localhost:5173`.
+Follow [the development setup](docs/development.md#setup) to configure an
+anonymous local Convex deployment. Run `pnpm dev` to start Convex and Vite
+together. Vite uses `http://localhost:5173` when that port is available.
 
 ## More Documentation
 

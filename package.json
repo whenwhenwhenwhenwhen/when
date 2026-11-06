@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@12.15.0",
   "scripts": {
-    "dev": "concurrently -n convex,vite -c cyan,magenta \"convex dev\" \"vite\"",
+    "dev": "concurrently -k -n convex,vite -c cyan,magenta \"convex dev\" \"vite\"",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "typecheck": "tsc -b",
