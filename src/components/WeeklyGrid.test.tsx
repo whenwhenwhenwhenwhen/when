@@ -23,8 +23,8 @@ function makeRect(left: number, top: number, width: number, height: number) {
   } as DOMRect;
 }
 
-const iconTitles = (cell: Element) =>
-  Array.from(cell.querySelectorAll("img")).map((img) => img.title);
+const iconLabels = (cell: Element) =>
+  Array.from(cell.querySelectorAll("img")).map((img) => img.getAttribute("aria-label"));
 
 describe("WeeklyGrid participant timezone editing", () => {
   beforeEach(() => {
@@ -457,11 +457,11 @@ describe("WeeklyGrid participant timezone editing", () => {
     // Tuesday 2026-07-28 at 09:00 — the exception's date.
     const rows = container.querySelectorAll("tbody tr");
     const tuesdayNine = rows[18].querySelectorAll("td")[3];
-    expect(iconTitles(tuesdayNine)).toEqual(["Other (cant-do)"]);
+    expect(iconLabels(tuesdayNine)).toEqual(["Other (Can't Do)"]);
 
     // The following Tuesday still shows the recurring selection.
     const wednesdayNine = rows[18].querySelectorAll("td")[4];
-    expect(iconTitles(wednesdayNine)).toEqual([]);
+    expect(iconLabels(wednesdayNine)).toEqual([]);
   });
 
   it("keeps other participants' selections visible on a cell the viewer excepts", () => {
@@ -533,9 +533,9 @@ describe("WeeklyGrid participant timezone editing", () => {
       .querySelectorAll("tbody tr")[18]
       .querySelectorAll("td")[3];
     // Icons are grouped by state, can-do first.
-    expect(iconTitles(tuesdayNine)).toEqual([
-      "Other (can-do)",
-      "Viewer (maybe)",
+    expect(iconLabels(tuesdayNine)).toEqual([
+      "Other (Can Do)",
+      "Viewer (Maybe)",
     ]);
     // The viewer's own state still resolves to their exception.
     expect(tuesdayNine.classList.contains(styles.stateMaybe)).toBe(true);

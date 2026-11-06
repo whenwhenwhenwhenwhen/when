@@ -14,6 +14,8 @@ export default defineSchema({
     timezone: v.string(),
     weekStartDay: v.number(), // 0=Sunday, 1=Monday, ..., 6=Saturday
     dstNotifications: v.boolean(),
+    nominationHoverEnabled: v.optional(v.boolean()),
+    nominationHoverDelayMs: v.optional(v.number()),
   })
     .index("by_identityId", ["identityId"])
     .index("by_profileImageStorageId_and_profileImageUrl", [

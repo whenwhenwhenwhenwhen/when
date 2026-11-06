@@ -4,6 +4,10 @@ import { X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { getCommonTimezones } from "../lib/timezone";
 import { Id } from "../../convex/_generated/dataModel";
+import {
+  isValidNominationHoverDelay,
+  MAX_NOMINATION_HOVER_DELAY_MS,
+} from "../../shared/nominationHover";
 import { CalendarSyncSettings } from "./CalendarSyncSettings";
 import { useToast } from "../hooks/useToast";
 import { cx } from "../lib/classes";
@@ -15,6 +19,8 @@ interface Profile {
   timezone: string;
   weekStartDay: number;
   dstNotifications: boolean;
+  nominationHoverEnabled: boolean;
+  nominationHoverDelayMs: number;
   profileImageUrl?: string;
   isAuthenticated: boolean;
   authType: "sso" | "anonymous";
@@ -142,8 +148,13 @@ export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
   const [dstNotifications, setDstNotifications] = useState(
     profile.dstNotifications
   );
+  const [nominationHoverEnabled, setNominationHoverEnabled] = useState(profile.nominationHoverEnabled);
+  const [nominationHoverDelay, setNominationHoverDelay] = useState(String(profile.nominationHoverDelayMs));
   const [saving, setSaving] = useState(false);
   const [timezoneSearch, setTimezoneSearch] = useState("");
+  const hoverDelayMs = Number(nominationHoverDelay);
+  const validHoverDelay = nominationHoverDelay !== "" && isValidNominationHoverDelay(hoverDelayMs);
+  const invalidEnabledHoverDelay = nominationHoverEnabled && !validHoverDelay;
 
   const handleSave = async () => {
     setSaving(true);
@@ -154,6 +165,8 @@ export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
         timezone,
         weekStartDay,
         dstNotifications,
+        nominationHoverEnabled,
+        nominationHoverDelayMs: validHoverDelay ? hoverDelayMs : undefined,
       });
       onClose();
 
@@ -285,6 +298,43 @@ export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
             </label>
           </div>
 
+          <div className={styles.checkboxRow}>
+            <input
+              type="checkbox"
+              id="nomination-hover-enabled"
+              checked={nominationHoverEnabled}
+              onChange={(e) => setNominationHoverEnabled(e.target.checked)}
+              className={styles.checkbox}
+            />
+            <label htmlFor="nomination-hover-enabled" className={styles.checkboxOption}>
+              Show nominations on hover
+            </label>
+          </div>
+
+          <div>
+            <label htmlFor="nomination-hover-delay" className={styles.fieldLabel}>
+              Hover delay (ms)
+            </label>
+            <input
+              type="number"
+              id="nomination-hover-delay"
+              value={nominationHoverDelay}
+              onChange={(e) => setNominationHoverDelay(e.target.value)}
+              min={0}
+              max={MAX_NOMINATION_HOVER_DELAY_MS}
+              step={1}
+              disabled={!nominationHoverEnabled}
+              aria-invalid={invalidEnabledHoverDelay}
+              aria-describedby={invalidEnabledHoverDelay ? "nomination-hover-delay-error" : undefined}
+              className={styles.control}
+            />
+            {invalidEnabledHoverDelay && (
+              <p id="nomination-hover-delay-error" className={styles.errorText}>
+                Enter a whole number from 0 to {MAX_NOMINATION_HOVER_DELAY_MS.toLocaleString()}.
+              </p>
+            )}
+          </div>
+
           {profile.authType === "sso" && profile._id && (
             <CalendarSyncSettings
               profileId={profile._id}
@@ -301,7 +351,7 @@ export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
             </button>
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || invalidEnabledHoverDelay}
               className={styles.buttonPrimary}
             >
               {saving ? "Saving..." : "Save"}

@@ -33,6 +33,8 @@ function currentUserProfile(args: Args) {
         timezone: profile.timezone,
         weekStartDay: profile.weekStartDay,
         dstNotifications: profile.dstNotifications,
+        nominationHoverEnabled: profile.nominationHoverEnabled ?? true,
+        nominationHoverDelayMs: profile.nominationHoverDelayMs ?? 0,
         isAuthenticated: false,
         authType: "anonymous",
         ssoName: undefined,

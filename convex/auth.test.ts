@@ -55,6 +55,36 @@ describe("googly auth profile integration", () => {
     expect(stored).not.toHaveProperty("anonymousClaim");
   });
 
+  it("defaults, saves, and validates nomination hover preferences on the caller's profile", async () => {
+    const t = setup();
+    await ensureAnonymous(t, CLAIM_A, "Alice");
+    const bob = asGoogleUser(t, "bob");
+    await bob.mutation(api.users.ensureProfile, { timezone: "UTC" });
+
+    expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
+      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 0 });
+
+    await t.mutation(api.users.updateProfile, {
+      anonymousClaim: CLAIM_A,
+      nominationHoverEnabled: false,
+      nominationHoverDelayMs: 450,
+    });
+    await bob.mutation(api.users.updateProfile, { nominationHoverDelayMs: 200 });
+
+    for (const nominationHoverDelayMs of [-1, 0.5, 2_147_483_648]) {
+      await expect(t.mutation(api.users.updateProfile, {
+        anonymousClaim: CLAIM_A,
+        nominationHoverEnabled: true,
+        nominationHoverDelayMs,
+      })).rejects.toThrow("Nomination hover delay");
+    }
+
+    expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
+      .toMatchObject({ nominationHoverEnabled: false, nominationHoverDelayMs: 450 });
+    expect(await bob.query(api.users.currentUserProfile, {}))
+      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 200 });
+  });
+
   it("rejects malformed anonymous claims", async () => {
     const t = setup();
     await expect(

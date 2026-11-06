@@ -1113,6 +1113,8 @@ export function ScheduleView() {
           userTimezone={timezone}
           selectionTimezone={selectionTimezone}
           weekStartDay={weekStartDay}
+          nominationHoverEnabled={profile?.nominationHoverEnabled}
+          nominationHoverDelayMs={profile?.nominationHoverDelayMs}
           selectMode={selectMode}
           allowMode={allowMode}
           weekOffset={weekOffset}

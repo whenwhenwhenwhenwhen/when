@@ -1,4 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
+import type { CSSProperties, PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { DateTime } from "luxon";
 import { CalendarDays } from "lucide-react";
 import { Id } from "../../convex/_generated/dataModel";
@@ -65,6 +67,8 @@ interface Props {
   userTimezone: string;
   selectionTimezone: string;
   weekStartDay: number;
+  nominationHoverEnabled?: boolean;
+  nominationHoverDelayMs?: number;
   selectMode: SelectMode;
   allowMode: AllowMode;
   weekOffset: number;
@@ -109,6 +113,20 @@ interface CellParticipant {
   state: "can-do" | "cant-do" | "maybe";
 }
 
+const nominationLabels: Record<CellParticipant["state"], string> = {
+  "can-do": "Can Do",
+  "cant-do": "Can't Do",
+  maybe: "Maybe",
+};
+
+interface NominationHover {
+  anchor: HTMLTableCellElement;
+  dayIndex: number;
+  timeIndex: number;
+  profileId?: string;
+  popupStyle?: CSSProperties;
+}
+
 interface SelectionBox {
   startX: number;
   startY: number;
@@ -133,6 +151,67 @@ function getInitials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+function ParticipantIcon({
+  profile,
+  state,
+}: {
+  profile: Profile;
+  state?: CellParticipant["state"];
+}) {
+  const iconProps = {
+    className: styles.profileIcon,
+    "aria-label": state && `${profile.displayName} (${nominationLabels[state]})`,
+    "aria-hidden": state ? undefined : true,
+    "data-nomination-profile": state ? profile._id : undefined,
+  };
+
+  return profile.profileImageUrl ? (
+    <img
+      {...iconProps}
+      src={profile.profileImageUrl}
+      alt={state ? profile.displayName : ""}
+      draggable={false}
+    />
+  ) : (
+    <span
+      {...iconProps}
+      role="img"
+      style={{ backgroundColor: getUserColor(profile._id) }}
+    >
+      {getInitials(profile.displayName)}
+    </span>
+  );
+}
+
+function getNominationPopupStyle(
+  cell: HTMLTableCellElement,
+  grid: HTMLDivElement
+): CSSProperties | undefined {
+  const { left, right, top, bottom } = cell.getBoundingClientRect();
+  const viewportWidth = document.documentElement.clientWidth;
+  const gridLeft = grid.getBoundingClientRect().left + grid.clientLeft;
+  const timeColumnRight =
+    cell.parentElement?.firstElementChild?.getBoundingClientRect().right ?? gridLeft;
+  const visibleLeft = Math.max(left, gridLeft, timeColumnRight, 0);
+  const visibleRight = Math.min(right, gridLeft + grid.clientWidth, viewportWidth);
+  if (visibleRight <= visibleLeft) return;
+
+  // Start at the middle of the visible column and grow toward the roomier side.
+  const midpoint = (visibleLeft + visibleRight) / 2;
+  const openLeft = midpoint > viewportWidth / 2;
+  const inset = Math.ceil(openLeft ? viewportWidth - midpoint : midpoint);
+  const spaceBelow = window.innerHeight - bottom;
+  const openAbove = spaceBelow < 220 && top > spaceBelow;
+  const availableHeight = openAbove ? top : spaceBelow;
+
+  return {
+    ...(openLeft ? { right: inset } : { left: inset }),
+    maxWidth: viewportWidth - inset - 8,
+    ...(openAbove ? { bottom: window.innerHeight - top } : { top: bottom }),
+    maxHeight: `min(18rem, ${availableHeight - 8}px)`,
+  };
 }
 
 function getSelectionViewerCell(
@@ -162,6 +241,8 @@ export function WeeklyGrid({
   userTimezone,
   selectionTimezone,
   weekStartDay,
+  nominationHoverEnabled = true,
+  nominationHoverDelayMs = 0,
   selectMode,
   allowMode,
   weekOffset,
@@ -175,7 +256,46 @@ export function WeeklyGrid({
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
+  const nominationPopupRef = useRef<HTMLUListElement>(null);
+  const [nominationHover, setNominationHover] = useState<NominationHover | null>(null);
+  const nominationAnchor = nominationHover?.anchor;
   const { showToast } = useToast();
+
+  useEffect(() => {
+    if (!nominationHoverEnabled) {
+      setNominationHover(null);
+      return;
+    }
+    if (!nominationAnchor) return;
+
+    const openPopup = () => {
+      const grid = gridRef.current;
+      if (!grid) return;
+
+      const popupStyle = getNominationPopupStyle(nominationAnchor, grid);
+      if (!popupStyle) return;
+
+      setNominationHover((current) => current?.anchor === nominationAnchor
+        ? { ...current, popupStyle }
+        : current);
+    };
+    const timer = nominationHoverDelayMs > 0
+      ? window.setTimeout(openPopup, nominationHoverDelayMs)
+      : undefined;
+    if (timer === undefined) openPopup();
+
+    const close = () => setNominationHover(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("resize", close);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [nominationAnchor, nominationHoverEnabled, nominationHoverDelayMs]);
 
   // Drag state. The document listeners are registered once per drag, so the
   // commit path must read the live box from refs rather than from the state
@@ -785,6 +905,7 @@ export function WeeklyGrid({
       if (!canInteract) return;
 
       e.preventDefault();
+      setNominationHover(null);
       dragStartRef.current = {
         x: e.clientX,
         y: e.clientY,
@@ -1120,6 +1241,31 @@ export function WeeklyGrid({
     return map;
   }, [schedule.profiles]);
 
+  const hoveredNominations = nominationHoverEnabled && nominationHover?.popupStyle && new Map(
+    getCellParticipants(nominationHover.dayIndex, nominationHover.timeIndex)
+      .flatMap(({ profileId, state }) => {
+        const profile = profileMap.get(profileId);
+        return profile ? [[profileId, { profile, state }] as const] : [];
+      })
+  );
+
+  // A pointer can enter the cell under the popup when Escape dismisses it.
+  // Wait for actual pointer movement before opening another popup.
+  function handleNominationMove(
+    event: PointerEvent<HTMLTableCellElement>,
+    dayIndex: number,
+    timeIndex: number
+  ) {
+    if (isDragging || event.buttons !== 0 || event.pointerType === "touch") return;
+
+    const anchor = event.currentTarget;
+    const profileId = (event.target as HTMLElement).dataset.nominationProfile;
+    setNominationHover((current) => {
+      if (current?.anchor !== anchor) return { anchor, dayIndex, timeIndex, profileId };
+      return current.profileId === profileId ? current : { ...current, profileId };
+    });
+  }
+
   // Current day and time for indicators
   const currentDayIndex = useMemo(() => {
     const todayStr = now.toISODate();
@@ -1170,6 +1316,7 @@ export function WeeklyGrid({
       <div
         ref={gridRef}
         className={styles.gridContainer}
+        onScroll={() => setNominationHover(null)}
       >
         <table
           className={cx(
@@ -1220,6 +1367,11 @@ export function WeeklyGrid({
                     dayIndex,
                     timeIndex
                   );
+                  const hasNominations = cellParticipants.length > 0;
+                  const canShowNominations = nominationHoverEnabled && hasNominations;
+                  const isNominationAnchor =
+                    nominationHover?.dayIndex === dayIndex &&
+                    nominationHover.timeIndex === timeIndex;
                   const cellDisallowed = isCellDisallowed(dayIndex, timeIndex);
                   const cellLocked = isCellLocked(dayIndex, timeIndex);
                   const cellCalendarSynced = calendarSyncedCells.has(cellKey);
@@ -1265,6 +1417,7 @@ export function WeeklyGrid({
                       : "",
                     dragSelectionClass,
                     !inRange && styles.cellOutOfRange,
+                    canShowNominations && styles.cellHasNominations,
                   );
 
                   return (
@@ -1291,6 +1444,15 @@ export function WeeklyGrid({
                           ? handleMouseDown(e, dayIndex, timeIndex)
                           : undefined
                       }
+                      onPointerMove={canShowNominations
+                        ? (event) => handleNominationMove(event, dayIndex, timeIndex)
+                        : undefined}
+                      onPointerLeave={canShowNominations || isNominationAnchor ? (event) => {
+                        const next = event.relatedTarget;
+                        if (next instanceof Node && nominationPopupRef.current?.contains(next)) return;
+                        const anchor = event.currentTarget;
+                        setNominationHover((current) => current?.anchor === anchor ? null : current);
+                      } : undefined}
                       style={{ height: 24, padding: "1px" }}
                     >
                       {/* Current time line */}
@@ -1309,7 +1471,7 @@ export function WeeklyGrid({
                       )}
 
                       {/* Profile icons for every participant in this cell */}
-                      {cellParticipants.length > 0 && (
+                      {hasNominations && (
                         <div className={styles.profileCellContent}>
                           {(
                             ["can-do", "cant-do", "maybe"] as const
@@ -1335,27 +1497,12 @@ export function WeeklyGrid({
                                   const prof = profileMap.get(s.profileId);
                                   if (!prof) return null;
 
-                                  return prof.profileImageUrl ? (
-                                    <img
+                                  return (
+                                    <ParticipantIcon
                                       key={s.profileId}
-                                      src={prof.profileImageUrl}
-                                      alt={prof.displayName}
-                                      title={`${prof.displayName} (${state})`}
-                                      className={styles.profileIcon}
+                                      profile={prof}
+                                      state={state}
                                     />
-                                  ) : (
-                                    <span
-                                      key={s.profileId}
-                                      className={styles.profileIcon}
-                                      style={{
-                                        backgroundColor: getUserColor(
-                                          s.profileId
-                                        ),
-                                      }}
-                                      title={`${prof.displayName} (${state})`}
-                                    >
-                                      {getInitials(prof.displayName)}
-                                    </span>
                                   );
                                 })}
                               </div>
@@ -1371,6 +1518,35 @@ export function WeeklyGrid({
           </tbody>
         </table>
       </div>
+
+      {nominationHover && hoveredNominations && hoveredNominations.size > 0 && createPortal(
+        <ul
+          ref={nominationPopupRef}
+          aria-label="Nominations"
+          className={styles.nominationPopup}
+          style={nominationHover.popupStyle}
+          onPointerLeave={(event) => {
+            const next = event.relatedTarget;
+            if (next instanceof Node && nominationHover.anchor.contains(next)) return;
+            setNominationHover(null);
+          }}
+        >
+          {[...hoveredNominations].map(([profileId, { profile, state }]) => (
+            <li
+              key={profileId}
+              className={cx(
+                styles.nominationPopupRow,
+                nominationHover.profileId === profileId && styles.nominationPopupRowHighlighted,
+              )}
+            >
+              <ParticipantIcon profile={profile} />
+              <span>{profile.displayName}</span>
+              <small>{nominationLabels[state]}</small>
+            </li>
+          ))}
+        </ul>,
+        document.body
+      )}
 
       {/* Selection box overlay */}
       {selectionRect && (

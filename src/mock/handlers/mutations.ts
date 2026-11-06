@@ -47,7 +47,10 @@ function updateProfile(args: Args) {
   if (args.timezone !== undefined) clean.timezone = args.timezone;
   if (args.weekStartDay !== undefined) clean.weekStartDay = args.weekStartDay;
   if (args.dstNotifications !== undefined) clean.dstNotifications = args.dstNotifications;
+  if (args.nominationHoverEnabled !== undefined) clean.nominationHoverEnabled = args.nominationHoverEnabled;
+  if (args.nominationHoverDelayMs !== undefined) clean.nominationHoverDelayMs = args.nominationHoverDelayMs;
   store.patch("userProfiles", profile._id, clean);
+  return null;
 }
 
 function refreshProfileImageIfNeeded() {

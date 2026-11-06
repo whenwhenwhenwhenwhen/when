@@ -8,6 +8,10 @@ import {
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import {
+  isValidNominationHoverDelay,
+  MAX_NOMINATION_HOVER_DELAY_MS,
+} from "../shared/nominationHover";
+import {
   getCurrentProfile,
   googlyAuth,
   requireCurrentProfile,
@@ -399,6 +403,22 @@ export const ensureProfile = mutation({
 // Return only UI-safe app profile fields; the opaque identity id stays private.
 export const currentUserProfile = query({
   args: { anonymousClaim: v.optional(v.string()) },
+  returns: v.union(v.null(), v.object({
+    _id: v.id("userProfiles"),
+    _creationTime: v.number(),
+    displayName: v.string(),
+    profileImageUrl: v.optional(v.string()),
+    timezone: v.string(),
+    weekStartDay: v.number(),
+    dstNotifications: v.boolean(),
+    nominationHoverEnabled: v.boolean(),
+    nominationHoverDelayMs: v.number(),
+    isAuthenticated: v.boolean(),
+    authType: v.union(v.literal("sso"), v.literal("anonymous")),
+    ssoName: v.optional(v.string()),
+    ssoEmail: v.optional(v.string()),
+    ssoImage: v.optional(v.string()),
+  })),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     const profile = await getCurrentProfile(ctx, args.anonymousClaim);
@@ -418,6 +438,8 @@ export const currentUserProfile = query({
       timezone: profile.timezone,
       weekStartDay: profile.weekStartDay,
       dstNotifications: profile.dstNotifications,
+      nominationHoverEnabled: profile.nominationHoverEnabled ?? true,
+      nominationHoverDelayMs: profile.nominationHoverDelayMs ?? 0,
       isAuthenticated: identity !== null,
       authType: identity !== null ? ("sso" as const) : ("anonymous" as const),
       ssoName: identity?.name,
@@ -435,7 +457,10 @@ export const updateProfile = mutation({
     timezone: v.optional(v.string()),
     weekStartDay: v.optional(v.number()),
     dstNotifications: v.optional(v.boolean()),
+    nominationHoverEnabled: v.optional(v.boolean()),
+    nominationHoverDelayMs: v.optional(v.number()),
   },
+  returns: v.null(),
   handler: async (ctx, args) => {
     const profile = await requireCurrentProfile(ctx, args.anonymousClaim);
     const cleanUpdates: Record<string, unknown> = {};
@@ -449,8 +474,18 @@ export const updateProfile = mutation({
     }
     if (args.dstNotifications !== undefined)
       cleanUpdates.dstNotifications = args.dstNotifications;
+    if (args.nominationHoverEnabled !== undefined) {
+      cleanUpdates.nominationHoverEnabled = args.nominationHoverEnabled;
+    }
+    if (args.nominationHoverDelayMs !== undefined) {
+      if (!isValidNominationHoverDelay(args.nominationHoverDelayMs)) {
+        throw new Error(`Nomination hover delay must be a whole number from 0 to ${MAX_NOMINATION_HOVER_DELAY_MS} ms`);
+      }
+      cleanUpdates.nominationHoverDelayMs = args.nominationHoverDelayMs;
+    }
 
     await ctx.db.patch(profile._id, cleanUpdates);
+    return null;
   },
 });
 

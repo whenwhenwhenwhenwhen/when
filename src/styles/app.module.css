@@ -1774,6 +1774,10 @@ tr:has(> .gridCell:hover) > .timeCell {
   pointer-events: none;
 }
 
+.gridCell.cellHasNominations {
+  pointer-events: auto;
+}
+
 .profileCellContent {
   display: flex;
   flex-wrap: wrap;
@@ -1825,6 +1829,54 @@ tr:has(> .gridCell:hover) > .timeCell {
   color: #ffffff;
   font-size: 0.5rem;
   font-weight: 700;
+}
+
+.cellHasNominations .profileIcon:hover {
+  box-shadow: 0 0 0 1px var(--color-page), 0 0 0 2px var(--color-text);
+}
+
+.nominationPopup {
+  position: fixed;
+  z-index: 40;
+  width: 15rem;
+  margin: 0;
+  padding: var(--space-1);
+  overflow: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  font-size: 0.75rem;
+}
+
+.nominationPopupRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-lg);
+  overflow-wrap: anywhere;
+}
+
+.nominationPopup:not(:hover) .nominationPopupRowHighlighted,
+.nominationPopupRow:hover {
+  outline: 1px solid var(--color-indigo-soft-text);
+  outline-offset: -1px;
+}
+
+.nominationPopupRow .profileIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+  object-fit: cover;
+}
+
+.nominationPopupRow small {
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 @media (prefers-color-scheme: dark) {
