@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Settings } from "luxon";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Id } from "../../convex/_generated/dataModel";
@@ -678,5 +678,72 @@ describe("WeeklyGrid participant timezone editing", () => {
 
     rerender(renderGrid([alphaId, zuluId]));
     expect(getIconNames(container)).toEqual(["Alpha", "Zulu"]);
+  });
+
+  it("groups hovered nominations by availability and sorts each group by display name", () => {
+    const nominations = [
+      { profileId: "a", displayName: "Ari", state: "maybe" },
+      { profileId: "b", displayName: "Zoe", state: "can-do" },
+      { profileId: "c", displayName: "Bea", state: "cant-do" },
+      { profileId: "d", displayName: "Cam", state: "can-do" },
+    ] as const;
+    const timezone = "Australia/Melbourne";
+    const { container } = render(
+      <WeeklyGrid
+        schedule={{
+          _id: "schedule" as Id<"schedules">,
+          title: "Hover order",
+          type: "recurring",
+          creatorTimezone: timezone,
+          creatorProfileId: "creator" as Id<"userProfiles">,
+          selections: nominations.map(({ profileId, state }) => ({
+            _id: `selection-${profileId}`,
+            scheduleId: "schedule",
+            profileId,
+            state,
+            dayKey: "1",
+            timeSlot: "09:00",
+            timezone,
+          })),
+          profiles: nominations.map(({ profileId, displayName }) => ({
+            _id: profileId,
+            displayName,
+            timezone,
+          })),
+        }}
+        profileId={null}
+        userTimezone={timezone}
+        selectionTimezone={timezone}
+        weekStartDay={0}
+        selectMode="auto"
+        allowMode="auto"
+        weekOffset={0}
+        canInteract={false}
+        isCreator={false}
+        canLock={false}
+        creatorMode={null}
+        onCellChange={vi.fn(() => Promise.resolve())}
+        onBatchChange={vi.fn(() => Promise.resolve())}
+        onCreatorSlotChange={vi.fn(() => Promise.resolve())}
+      />
+    );
+    const grid = container.querySelector(`.${styles.gridContainer}`)!;
+    Object.defineProperty(grid, "clientWidth", { value: 800 });
+    const viewportWidth = vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(800);
+    try {
+      fireEvent.pointerMove(screen.getByRole("img", { name: "Zoe (Can Do)" }));
+    } finally {
+      viewportWidth.mockRestore();
+    }
+
+    const popup = screen.getByRole("list", { name: "Nominations" });
+    expect(within(popup).getAllByRole("listitem").map((row) =>
+      Array.from(row.children).slice(1).map((element) => element.textContent)
+    )).toEqual([
+      ["Cam", "Can Do"],
+      ["Zoe", "Can Do"],
+      ["Bea", "Can't Do"],
+      ["Ari", "Maybe"],
+    ]);
   });
 });

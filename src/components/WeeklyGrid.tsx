@@ -115,6 +115,7 @@ interface CellParticipant {
   state: "can-do" | "cant-do" | "maybe";
 }
 
+const nominationOrder = ["can-do", "cant-do", "maybe"] as const;
 const nominationLabels: Record<CellParticipant["state"], string> = {
   "can-do": "Can Do",
   "cant-do": "Can't Do",
@@ -1416,9 +1417,7 @@ export function WeeklyGrid({
                       {/* Profile icons for every participant in this cell */}
                       {hasNominations && (
                         <div className={styles.profileCellContent}>
-                          {(
-                            ["can-do", "cant-do", "maybe"] as const
-                          ).map((state) => {
+                          {nominationOrder.map((state) => {
                             const stateSelections = cellParticipants.filter(
                               (s) => s.state === state
                             );
@@ -1474,19 +1473,24 @@ export function WeeklyGrid({
             setNominationHover(null);
           }}
         >
-          {[...hoveredNominations].map(([profileId, { profile, state }]) => (
-            <li
-              key={profileId}
-              className={cx(
-                styles.nominationPopupRow,
-                nominationHover.profileId === profileId && styles.nominationPopupRowHighlighted,
-              )}
-            >
-              <ParticipantIcon profile={profile} />
-              <span>{profile.displayName}</span>
-              <small>{nominationLabels[state]}</small>
-            </li>
-          ))}
+          {[...hoveredNominations]
+            .sort(([, a], [, b]) =>
+              nominationOrder.indexOf(a.state) - nominationOrder.indexOf(b.state) ||
+              a.profile.displayName.localeCompare(b.profile.displayName)
+            )
+            .map(([profileId, { profile, state }]) => (
+              <li
+                key={profileId}
+                className={cx(
+                  styles.nominationPopupRow,
+                  nominationHover.profileId === profileId && styles.nominationPopupRowHighlighted,
+                )}
+              >
+                <ParticipantIcon profile={profile} />
+                <span>{profile.displayName}</span>
+                <small>{nominationLabels[state]}</small>
+              </li>
+            ))}
         </ul>,
         document.body
       )}
