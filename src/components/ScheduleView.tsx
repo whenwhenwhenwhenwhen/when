@@ -17,6 +17,7 @@ import { EditScheduleModal } from "./EditScheduleModal";
 import { ParticipantsMenu } from "./ParticipantsMenu";
 import { DiscordLinkButton } from "./DiscordLinkButton";
 import { ScheduleOptionsMenu } from "./ScheduleOptionsMenu";
+import { ScheduleSummaryModal } from "./ScheduleSummaryModal";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
 import { useToast } from "../hooks/useToast";
@@ -85,6 +86,7 @@ export function ScheduleView() {
   const [showSaveNewModal, setShowSaveNewModal] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<Id<"userProfiles"> | null>(null);
 
@@ -800,6 +802,14 @@ export function ScheduleView() {
                 My timezone: {timezone}
               </span>
               <div className={styles.creatorActionRow}>
+                <button
+                  type="button"
+                  onClick={() => setShowSummaryModal(true)}
+                  className={styles.buttonSecondarySmall}
+                  aria-haspopup="dialog"
+                >
+                  Summary
+                </button>
                 {isCreator && (
                   <ScheduleOptionsMenu
                     acceptParticipation={
@@ -1070,7 +1080,16 @@ export function ScheduleView() {
           )}
 
           {/* Week navigation */}
-          <div className={cx(styles.inlineClusterTight, styles.toolbarSpacer)}>
+          <div className={cx(styles.inlineClusterTight, styles.weekNavigation)}>
+            {weekOffset !== 0 && (
+              <button
+                type="button"
+                onClick={() => setWeekOffset(0)}
+                className={styles.buttonSecondarySmall}
+              >
+                Today
+              </button>
+            )}
             <button
               onClick={handleWeekBack}
               disabled={!canGoBack()}
@@ -1095,14 +1114,6 @@ export function ScheduleView() {
             >
               <ArrowRight className={styles.iconSm} aria-hidden="true" />
             </button>
-            {weekOffset !== 0 && (
-              <button
-                onClick={() => setWeekOffset(0)}
-                className={styles.linkButton}
-              >
-                Today
-              </button>
-            )}
           </div>
         </div>
 
@@ -1127,6 +1138,15 @@ export function ScheduleView() {
           onCreatorSlotChange={handleCreatorSlotChange}
         />
       </main>
+
+      {showSummaryModal && (
+        <ScheduleSummaryModal
+          schedule={schedule}
+          referenceDate={referenceDate}
+          weekStartDay={weekStartDay}
+          onClose={() => setShowSummaryModal(false)}
+        />
+      )}
 
       {/* Clear confirmation modal */}
       {showClearModal && (() => {

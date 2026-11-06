@@ -417,6 +417,94 @@
   max-width: 28rem;
 }
 
+.scheduleSummaryDialog {
+  width: calc(100% - 2rem);
+  color: var(--color-text);
+}
+
+.scheduleSummaryDialog::backdrop {
+  background: var(--color-backdrop);
+}
+
+.scheduleSummaryList {
+  list-style: none;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.scheduleSummaryDay {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.scheduleSummaryWindow {
+  padding-block-start: var(--space-2);
+}
+
+.scheduleSummaryWindow + .scheduleSummaryWindow {
+  margin-block-start: var(--space-2);
+  border-block-start: 1px solid var(--color-border);
+}
+
+.scheduleSummaryTime {
+  margin: 0;
+}
+
+.scheduleSummaryParticipants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  list-style: none;
+  padding: 0;
+}
+
+.scheduleSummaryParticipants .profileIcon {
+  flex-shrink: 0;
+}
+
+.scheduleSummaryCount {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  clip-path: none;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+
+.scheduleSummaryPopover {
+  width: 15rem;
+  max-width: calc(100vw - 2rem);
+  max-height: min(16rem, calc(100dvh - 2rem));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-lg);
+}
+
+.scheduleSummaryPopover .scheduleSummaryParticipants {
+  flex-direction: column;
+}
+
+@supports (position-area: right span-bottom) {
+  .scheduleSummaryPopover {
+    inset: auto;
+    margin: var(--space-1);
+    position-area: right span-bottom;
+    position-try-fallbacks: left span-bottom, right span-top, left span-top, bottom span-left, top span-left, --summary-centered;
+  }
+
+  @position-try --summary-centered {
+    position-area: none;
+    inset: 0;
+    margin: auto;
+  }
+}
+
 .modalPanelSm .bodyText + .control,
 .modalPanelSm .bodyText + .invalidControl {
   margin-top: var(--space-4);
@@ -1250,8 +1338,11 @@ input:disabled {
   background: var(--color-danger);
 }
 
+.weekNavigation {
+  margin-inline-start: auto;
+}
+
 .weekRange {
-  min-width: 7.5rem;
   color: var(--color-text-muted);
   font-size: 0.75rem;
   text-align: center;
@@ -1868,7 +1959,8 @@ tr:has(> .gridCell:hover) > .timeCell {
   outline-offset: -1px;
 }
 
-.nominationPopupRow .profileIcon {
+.nominationPopupRow .profileIcon,
+.scheduleSummaryParticipants .profileIcon {
   width: 1.25rem;
   height: 1.25rem;
   object-fit: cover;

@@ -16,6 +16,7 @@ import {
 import { getDstNotice } from "../lib/dst";
 import { useToast } from "../hooks/useToast";
 import { cx } from "../lib/classes";
+import { ParticipantIcon } from "./ParticipantIcon";
 import styles from "../styles/app.module.css";
 
 type CellState = "can-do" | "cant-do" | "maybe" | "blank";
@@ -132,57 +133,6 @@ interface SelectionBox {
   startY: number;
   currentX: number;
   currentY: number;
-}
-
-// Generate a consistent color for a user based on their ID
-function getUserColor(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 60%, 45%)`;
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-}
-
-function ParticipantIcon({
-  profile,
-  state,
-}: {
-  profile: Profile;
-  state?: CellParticipant["state"];
-}) {
-  const iconProps = {
-    className: styles.profileIcon,
-    "aria-label": state && `${profile.displayName} (${nominationLabels[state]})`,
-    "aria-hidden": state ? undefined : true,
-    "data-nomination-profile": state ? profile._id : undefined,
-  };
-
-  return profile.profileImageUrl ? (
-    <img
-      {...iconProps}
-      src={profile.profileImageUrl}
-      alt={state ? profile.displayName : ""}
-      draggable={false}
-    />
-  ) : (
-    <span
-      {...iconProps}
-      role="img"
-      style={{ backgroundColor: getUserColor(profile._id) }}
-    >
-      {getInitials(profile.displayName)}
-    </span>
-  );
 }
 
 function getNominationPopupStyle(
@@ -1501,7 +1451,7 @@ export function WeeklyGrid({
                                     <ParticipantIcon
                                       key={s.profileId}
                                       profile={prof}
-                                      state={state}
+                                      nomination={nominationLabels[state]}
                                     />
                                   );
                                 })}
