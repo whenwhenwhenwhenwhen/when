@@ -55,6 +55,7 @@ interface Schedule {
   creatorProfileId: Id<"userProfiles">;
   selections: Selection[];
   profiles: Profile[];
+  disallowCantDo?: boolean;
   disallowedSlots?: { dayKey: string; timeSlot: string }[];
   lockedSlots?: { dayKey: string; timeSlot: string }[];
   isLocked?: boolean;
@@ -351,7 +352,7 @@ export function WeeklyGrid({
   // Build a set of cell keys that are calendar-synced for the current user
   const calendarSyncedCells = useMemo(() => {
     const set = new Set<string>();
-    if (!profileId) return set;
+    if (!profileId || schedule.disallowCantDo) return set;
     for (const sel of schedule.selections) {
       if (sel.profileId !== profileId) continue;
       if (sel.source !== "calendar") continue;
@@ -367,6 +368,7 @@ export function WeeklyGrid({
     return set;
   }, [
     schedule.selections,
+    schedule.disallowCantDo,
     profileId,
     userTimezone,
     schedule.type,
@@ -531,34 +533,23 @@ export function WeeklyGrid({
     [getCellKey, myCellStates]
   );
 
-  // Get the next state in auto mode cycle
-  const getNextAutoState = (
-    current: CellState,
-    hasCalendarBaseline: boolean
-  ): CellState => {
-    if (hasCalendarBaseline) {
+  const getNextAutoState = useCallback(
+    (current: CellState, hasCalendarBaseline: boolean): CellState => {
       switch (current) {
         case "blank":
-        case "cant-do":
           return "can-do";
         case "can-do":
-          return "maybe";
+          return hasCalendarBaseline || schedule.disallowCantDo
+            ? "maybe"
+            : "cant-do";
+        case "cant-do":
+          return hasCalendarBaseline ? "can-do" : "maybe";
         case "maybe":
           return "blank";
       }
-    }
-
-    switch (current) {
-      case "blank":
-        return "can-do";
-      case "can-do":
-        return "cant-do";
-      case "cant-do":
-        return "maybe";
-      case "maybe":
-        return "blank";
-    }
-  };
+    },
+    [schedule.disallowCantDo]
+  );
 
   // Convert a cell from the viewer's grid timezone to the timezone of the
   // profile whose availability is being edited.
@@ -835,6 +826,7 @@ export function WeeklyGrid({
       allowMode,
       getCellState,
       getCellKey,
+      getNextAutoState,
       calendarSyncedCells,
       isCellInDateRange,
       isCellDisallowed,
@@ -904,6 +896,7 @@ export function WeeklyGrid({
       canInteract,
       getCellState,
       getCellKey,
+      getNextAutoState,
       calendarSyncedCells,
       selectMode,
       isCreator,

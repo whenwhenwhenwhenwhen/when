@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router";
 import { useQuery, useMutation } from "convex/react";
+import { ConvexError } from "convex/values";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useGoogleAuth } from "../lib/authClient";
 import { api } from "../../convex/_generated/api";
@@ -82,6 +83,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
   const clearLockedSlots = useMutation(api.schedules.clearLockedSlots);
   const clearSelections = useMutation(api.selections.clearForProfile);
   const setAcceptParticipation = useMutation(api.schedules.setAcceptParticipation);
+  const setDisallowCantDo = useMutation(api.schedules.setDisallowCantDo);
   const setAnyoneCanLock = useMutation(api.schedules.setAnyoneCanLock);
   const addLockEditor = useMutation(api.schedules.addLockEditor);
   const removeLockEditor = useMutation(api.schedules.removeLockEditor);
@@ -90,6 +92,8 @@ function SchedulePage({ id }: { id: string | undefined }) {
   const setArchived = useMutation(api.schedules.setArchived);
 
   const [selectMode, setSelectMode] = useState<SelectMode>("auto");
+  const activeSelectMode =
+    schedule?.disallowCantDo && selectMode === "cant-do" ? "auto" : selectMode;
   const [allowMode, setAllowMode] = useState<AllowMode>("auto");
   const [creatorMode, setCreatorMode] = useState<CreatorMode>(null);
   const [weekOffset, setWeekOffset] = useState(0);
@@ -441,6 +445,25 @@ function SchedulePage({ id }: { id: string | undefined }) {
       }
     },
     [schedule, callerAnonymousClaim, setAnyoneCanLock, reportFailure]
+  );
+
+  const handleToggleAllowCantDo = useCallback(
+    async (allow: boolean) => {
+      if (!schedule) return;
+      try {
+        await setDisallowCantDo({
+          scheduleId: schedule._id,
+          anonymousClaim: callerAnonymousClaim,
+          disallowCantDo: !allow,
+        });
+      } catch (err) {
+        const message = err instanceof ConvexError && typeof err.data === "string"
+          ? err.data
+          : "Couldn't update Can't Do settings.";
+        reportFailure(message, err);
+      }
+    },
+    [schedule, callerAnonymousClaim, setDisallowCantDo, reportFailure]
   );
 
   const handlePromoteLockEditor = useCallback(
@@ -840,6 +863,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
                     acceptParticipation={
                       schedule.acceptParticipation !== false
                     }
+                    allowCantDo={!schedule.disallowCantDo}
                     anyoneCanLock={!!schedule.anyoneCanLock}
                     onDisallowOutsideNominations={
                       handleDisallowOutsideNominations
@@ -847,6 +871,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
                     onToggleAcceptParticipation={
                       handleToggleAcceptParticipation
                     }
+                    onToggleAllowCantDo={handleToggleAllowCantDo}
                     onToggleAnyoneCanLock={handleToggleAnyoneCanLock}
                     onEditSchedule={() => setShowEditModal(true)}
                     discordLinkAction={
@@ -971,13 +996,15 @@ function SchedulePage({ id }: { id: string | undefined }) {
               </select>
             ) : (
               <select
-                value={selectMode}
+                value={activeSelectMode}
                 onChange={(e) => setSelectMode(e.target.value as SelectMode)}
                 className={styles.selectControl}
               >
                 <option value="auto">Auto</option>
                 <option value="can-do">Can Do</option>
-                <option value="cant-do">Can&apos;t Do</option>
+                {!schedule.disallowCantDo && (
+                  <option value="cant-do">Can&apos;t Do</option>
+                )}
                 <option value="maybe">Maybe</option>
                 <option value="blank">Clear</option>
               </select>
@@ -990,10 +1017,12 @@ function SchedulePage({ id }: { id: string | undefined }) {
               <span className={cx(styles.legendSwatch, styles.canDoSwatch)}></span>
               Can Do
             </span>
-            <span className={styles.legendItem}>
-              <span className={cx(styles.legendSwatch, styles.cantDoSwatch)}></span>
-              Can&apos;t Do
-            </span>
+            {!schedule.disallowCantDo && (
+              <span className={styles.legendItem}>
+                <span className={cx(styles.legendSwatch, styles.cantDoSwatch)}></span>
+                Can&apos;t Do
+              </span>
+            )}
             <span className={styles.legendItem}>
               <span className={cx(styles.legendSwatch, styles.maybeSwatch)}></span>
               Maybe
@@ -1148,7 +1177,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
           weekStartDay={weekStartDay}
           nominationHoverEnabled={profile?.nominationHoverEnabled}
           nominationHoverDelayMs={profile?.nominationHoverDelayMs}
-          selectMode={selectMode}
+          selectMode={activeSelectMode}
           allowMode={allowMode}
           weekOffset={weekOffset}
           canInteract={canInteract || !!editingProfileId}

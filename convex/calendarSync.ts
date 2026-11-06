@@ -843,7 +843,9 @@ async function participatingScheduleIds(
     .withIndex("by_creatorProfileId", (q) => q.eq("creatorProfileId", profileId))
     .take(MAX_PROFILE_CREATED_SCHEDULES_FOR_SYNC);
 
-  const scheduleIds: Id<"schedules">[] = createdSchedules.map((s) => s._id);
+  const scheduleIds = createdSchedules
+    .filter((schedule) => !schedule.disallowCantDo)
+    .map((schedule) => schedule._id);
   const seen = new Set(scheduleIds.map((id) => id.toString()));
 
   const profileSelections = await ctx.db
@@ -855,7 +857,7 @@ async function participatingScheduleIds(
     if (scheduleIds.length >= MAX_CALENDAR_SYNC_SCHEDULES) break;
     if (seen.has(selection.scheduleId.toString())) continue;
     const schedule = await ctx.db.get(selection.scheduleId);
-    if (!schedule) continue;
+    if (!schedule || schedule.disallowCantDo) continue;
     scheduleIds.push(selection.scheduleId);
     seen.add(selection.scheduleId.toString());
   }
@@ -1088,7 +1090,7 @@ export const processCalendarEvents = internalMutation({
 
     for (const scheduleId of batch) {
       const schedule = await ctx.db.get(scheduleId);
-      if (!schedule) continue;
+      if (!schedule || schedule.disallowCantDo) continue;
       await syncScheduleSelections(ctx, {
         schedule,
         profileId,

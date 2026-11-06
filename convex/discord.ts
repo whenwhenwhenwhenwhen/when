@@ -218,15 +218,17 @@ export const buildSummaryInput = internalQuery({
       exceptionDate?: string;
     };
 
-    const flat: FlatSelection[] = dbSelections.map((s) => ({
-      profileId: s.profileId as unknown as string,
-      dayKey: s.dayKey,
-      timeSlot: s.timeSlot,
-      timezone: s.timezone,
-      state: s.state,
-      isException: s.isException,
-      exceptionDate: s.exceptionDate,
-    }));
+    const flat: FlatSelection[] = dbSelections
+      .filter((s) => !schedule.disallowCantDo || s.state !== "cant-do")
+      .map((s) => ({
+        profileId: s.profileId as unknown as string,
+        dayKey: s.dayKey,
+        timeSlot: s.timeSlot,
+        timezone: s.timezone,
+        state: s.state,
+        isException: s.isException,
+        exceptionDate: s.exceptionDate,
+      }));
 
     // Add virtual selections from linked saved availabilities
     const links = await ctx.db
@@ -238,6 +240,7 @@ export const buildSummaryInput = internalQuery({
       const savedAvail = await ctx.db.get(link.savedAvailabilityId);
       if (!savedAvail) continue;
       for (const slot of savedAvail.slots) {
+        if (schedule.disallowCantDo && slot.state === "cant-do") continue;
         flat.push({
           profileId: link.profileId as unknown as string,
           dayKey: slot.dayKey,

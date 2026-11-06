@@ -47,7 +47,13 @@ describe("WeeklyGrid participant timezone editing", () => {
     Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
   });
 
-  it("submits clicked cells in the edited participant's timezone", async () => {
+  it.each([
+    { disallowCantDo: undefined, nextState: "cant-do" },
+    { disallowCantDo: true, nextState: "maybe" },
+  ])("submits clicked cells in the edited participant's timezone with next state $nextState", async ({
+    disallowCantDo,
+    nextState,
+  }) => {
     const onCellChange = vi.fn(() => Promise.resolve());
     const participantId = "participant" as Id<"userProfiles">;
     const { container } = render(
@@ -56,6 +62,7 @@ describe("WeeklyGrid participant timezone editing", () => {
           _id: "schedule" as Id<"schedules">,
           title: "Timezone test",
           type: "recurring",
+          disallowCantDo,
           creatorTimezone: "Australia/Melbourne",
           creatorProfileId: "creator" as Id<"userProfiles">,
           selections: [
@@ -133,7 +140,7 @@ describe("WeeklyGrid participant timezone editing", () => {
       expect(onCellChange).toHaveBeenLastCalledWith(
         "1",
         "09:00",
-        "cant-do",
+        nextState,
         undefined,
         undefined,
         "America/New_York",

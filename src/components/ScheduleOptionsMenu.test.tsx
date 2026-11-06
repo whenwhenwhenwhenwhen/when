@@ -8,15 +8,18 @@ describe("ScheduleOptionsMenu", () => {
   it("exposes schedule controls and opens the edit modal action", () => {
     const onDisallowOutsideNominations = vi.fn();
     const onToggleAcceptParticipation = vi.fn();
+    const onToggleAllowCantDo = vi.fn();
     const onToggleAnyoneCanLock = vi.fn();
     const onEditSchedule = vi.fn();
 
     render(
       <ScheduleOptionsMenu
         acceptParticipation
+        allowCantDo
         anyoneCanLock={false}
         onDisallowOutsideNominations={onDisallowOutsideNominations}
         onToggleAcceptParticipation={onToggleAcceptParticipation}
+        onToggleAllowCantDo={onToggleAllowCantDo}
         onToggleAnyoneCanLock={onToggleAnyoneCanLock}
         onEditSchedule={onEditSchedule}
         discordLinkAction={<button type="button">Link to Discord</button>}
@@ -47,6 +50,9 @@ describe("ScheduleOptionsMenu", () => {
       screen.getByRole("button", { name: "Close participation" }),
     );
     expect(onToggleAcceptParticipation).toHaveBeenCalledWith(false);
+
+    fireEvent.click(screen.getByRole("switch", { name: "Allow Can't Do", checked: true }));
+    expect(onToggleAllowCantDo).toHaveBeenCalledWith(false);
 
     fireEvent.click(
       screen.getByRole("button", { name: "Allow anyone to lock in times" }),

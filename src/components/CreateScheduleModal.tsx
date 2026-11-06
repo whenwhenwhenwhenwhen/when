@@ -30,6 +30,7 @@ export function CreateScheduleModal({ onClose }: Props) {
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
   const [recurringStartDate, setRecurringStartDate] = useState("");
+  const [disallowCantDo, setDisallowCantDo] = useState(true);
   const [creatorName, setCreatorName] = useState(displayName || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -65,6 +66,7 @@ export function CreateScheduleModal({ onClose }: Props) {
         dateRangeEnd: type === "one-off" ? dateEnd : undefined,
         recurringStartDate: type === "recurring" && recurringStartDate ? recurringStartDate : undefined,
         creatorTimezone: timezone || detectTimezone(),
+        disallowCantDo,
       });
 
       navigate(`/schedule/${scheduleId}`);
@@ -210,6 +212,16 @@ export function CreateScheduleModal({ onClose }: Props) {
               />
             </div>
           )}
+
+          <label className={styles.checkboxOption}>
+            <input
+              type="checkbox"
+              checked={disallowCantDo}
+              onChange={(e) => setDisallowCantDo(e.target.checked)}
+              className={styles.checkbox}
+            />
+            Disallow Can&apos;t Do
+          </label>
 
           <div className={styles.faintText}>
             My timezone: {timezone}. Others will see schedules in their own timezone.

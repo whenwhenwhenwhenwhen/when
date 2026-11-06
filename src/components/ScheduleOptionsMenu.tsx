@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -11,9 +12,11 @@ import styles from "../styles/app.module.css";
 
 interface Props {
   acceptParticipation: boolean;
+  allowCantDo: boolean;
   anyoneCanLock: boolean;
   onDisallowOutsideNominations: () => void | Promise<void>;
   onToggleAcceptParticipation: (accept: boolean) => void | Promise<void>;
+  onToggleAllowCantDo: (allow: boolean) => void | Promise<void>;
   onToggleAnyoneCanLock: (enabled: boolean) => void | Promise<void>;
   onEditSchedule: () => void;
   discordLinkAction: ReactNode;
@@ -21,9 +24,11 @@ interface Props {
 
 export function ScheduleOptionsMenu({
   acceptParticipation,
+  allowCantDo,
   anyoneCanLock,
   onDisallowOutsideNominations,
   onToggleAcceptParticipation,
+  onToggleAllowCantDo,
   onToggleAnyoneCanLock,
   onEditSchedule,
   discordLinkAction,
@@ -33,6 +38,7 @@ export function ScheduleOptionsMenu({
     "schedule",
   );
   const menuRef = useRef<HTMLDivElement>(null);
+  const allowCantDoHintId = useId();
 
   const closeMenu = useCallback(() => {
     setIsOpen(false);
@@ -146,6 +152,31 @@ export function ScheduleOptionsMenu({
                       styles.toggleKnob,
                       acceptParticipation && styles.toggleKnobOn,
                     )}
+                  />
+                </button>
+              </div>
+
+              <div className={styles.scheduleOptionRow}>
+                <div>
+                  <span className={styles.calendarLabel}>Allow Can&apos;t Do</span>
+                  <p
+                    id={allowCantDoHintId}
+                    className={cx(styles.faintText, styles.scheduleOptionHint)}
+                  >
+                    Turning this off will remove current can&apos;t dos.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-label="Allow Can't Do"
+                  aria-checked={allowCantDo}
+                  aria-describedby={allowCantDoHintId}
+                  onClick={() => void onToggleAllowCantDo(!allowCantDo)}
+                  className={cx(styles.toggle, allowCantDo && styles.toggleOn)}
+                >
+                  <span
+                    className={cx(styles.toggleKnob, allowCantDo && styles.toggleKnobOn)}
                   />
                 </button>
               </div>

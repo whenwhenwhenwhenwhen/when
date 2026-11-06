@@ -79,6 +79,8 @@ function allowedSlotsForSchedule(
   const disallowed = schedule.disallowedSlots;
 
   return slots.filter((slot) => {
+    if (schedule.disallowCantDo && slot.state === "cant-do") return false;
+
     const scheduleCell = convertCellToTimezone(
       schedule.type,
       slot,
@@ -203,7 +205,7 @@ export const listForProfile = query({
 // Helper: get effective current recurring slots for a profile on a schedule
 async function getEffectiveSlots(
   ctx: { db: MutationCtx["db"] },
-  scheduleId: Id<"schedules">,
+  schedule: Doc<"schedules">,
   profileId: Id<"userProfiles">,
   targetTimezone: string
 ): Promise<SavedAvailabilitySlot[]> {
@@ -213,6 +215,8 @@ async function getEffectiveSlots(
   ) => {
     const normalized = new Map<string, SavedAvailabilitySlot>();
     for (const { slot, timezone } of entries) {
+      if (schedule.disallowCantDo && slot.state === "cant-do") continue;
+
       const converted = convertCellToTimezone(
         "recurring",
         slot,
@@ -233,7 +237,7 @@ async function getEffectiveSlots(
   const existingLink = await ctx.db
     .query("availabilityLinks")
     .withIndex("by_schedule_profile", (q) =>
-      q.eq("scheduleId", scheduleId).eq("profileId", profileId)
+      q.eq("scheduleId", schedule._id).eq("profileId", profileId)
     )
     .unique();
 
@@ -254,7 +258,7 @@ async function getEffectiveSlots(
   const selections = await ctx.db
     .query("selections")
     .withIndex("by_schedule_profile", (q) =>
-      q.eq("scheduleId", scheduleId).eq("profileId", profileId)
+      q.eq("scheduleId", schedule._id).eq("profileId", profileId)
     )
     .take(EFFECTIVE_SELECTION_LIMIT);
 
@@ -292,7 +296,7 @@ export const saveNewAndLink = mutation({
     // Get effective current slots
     const slots = await getEffectiveSlots(
       ctx,
-      args.scheduleId,
+      schedule,
       profile._id,
       args.timezone
     );
@@ -355,7 +359,7 @@ export const saveOverwriteDefaultAndLink = mutation({
     // Get effective current slots
     const slots = await getEffectiveSlots(
       ctx,
-      args.scheduleId,
+      schedule,
       profile._id,
       args.timezone
     );

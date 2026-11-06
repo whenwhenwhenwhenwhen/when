@@ -57,6 +57,8 @@ export default defineSchema({
     anyoneCanLock: v.optional(v.boolean()),
     lockEditors: v.optional(v.array(v.id("userProfiles"))),
     acceptParticipation: v.optional(v.boolean()), // undefined/true = open, false = closed
+    disallowCantDo: v.optional(v.boolean()), // Existing schedules allow all response states.
+    cantDoRevision: v.optional(v.number()), // Reject queued responses from before a disable.
     createdAt: v.number(),
   })
     .index("by_creatorProfileId", ["creatorProfileId"])
@@ -121,6 +123,7 @@ export default defineSchema({
     calendarSourceId: v.optional(v.id("calendarSources")),
   })
     .index("by_schedule", ["scheduleId"])
+    .index("by_scheduleId_and_state", ["scheduleId", "state"])
     .index("by_profileId", ["profileId"])
     .index("by_schedule_profile", ["scheduleId", "profileId"])
     .index("by_schedule_profile_source", ["scheduleId", "profileId", "source"])

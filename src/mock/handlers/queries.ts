@@ -247,7 +247,11 @@ function schedulesGet(args: Args) {
   // Get selections for this schedule
   const allSelections = store
     .query("selections")
-    .filter((s) => s.scheduleId === args.scheduleId);
+    .filter(
+      (s) =>
+        s.scheduleId === args.scheduleId &&
+        (!schedule.disallowCantDo || s.state !== "cant-do")
+    );
 
   // Get availability links for this schedule
   const links = store
@@ -289,6 +293,7 @@ function schedulesGet(args: Args) {
     });
 
     for (const slot of savedAvail.slots) {
+      if (schedule.disallowCantDo && slot.state === "cant-do") continue;
       virtualSelections.push({
         _id: `virtual_${link._id}_${slot.dayKey}_${slot.timeSlot}`,
         scheduleId: args.scheduleId,

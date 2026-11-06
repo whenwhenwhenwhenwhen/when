@@ -1262,6 +1262,14 @@ input:disabled {
   padding: var(--space-2) var(--space-3);
 }
 
+.scheduleOptionRow > .toggle {
+  flex-shrink: 0;
+}
+
+.scheduleOptionHint {
+  margin: var(--space-1) 0 0;
+}
+
 .selectControl {
   color: var(--color-text);
   background: var(--color-surface);

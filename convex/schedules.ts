@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   mutation,
@@ -515,15 +515,13 @@ export const get = query({
 
     const linkedProfileIds = new Set(links.map((l) => l.profileId.toString()));
 
-    // Filter out non-exception selections for linked profiles
-    // (their recurring data comes from the saved availability)
-    if (links.length > 0) {
-      selections = selections.filter((sel) => {
-        if (linkedProfileIds.has(sel.profileId.toString())) {
-          return sel.isException === true;
-        }
-        return true;
-      });
+    // Linked profiles get recurring selections from their saved availability.
+    if (links.length > 0 || schedule.disallowCantDo) {
+      selections = selections.filter(
+        (sel) =>
+          (!schedule.disallowCantDo || sel.state !== "cant-do") &&
+          (!linkedProfileIds.has(sel.profileId) || sel.isException === true)
+      );
     }
 
     // Build virtual selections from linked saved availabilities
@@ -560,6 +558,7 @@ export const get = query({
       });
 
       for (const slot of savedAvail.slots) {
+        if (schedule.disallowCantDo && slot.state === "cant-do") continue;
         virtualSelections.push({
           _id: `virtual_${link._id}_${slot.dayKey}_${slot.timeSlot}`,
           scheduleId: args.scheduleId,
@@ -666,7 +665,9 @@ export const create = mutation({
     dateRangeEnd: v.optional(v.string()),
     recurringStartDate: v.optional(v.string()),
     creatorTimezone: v.string(),
+    disallowCantDo: v.optional(v.boolean()),
   },
+  returns: v.id("schedules"),
   handler: async (ctx, args) => {
     const caller = await requireCallerProfile(ctx, args.anonymousClaim);
     if (caller._id !== args.creatorProfileId) {
@@ -682,6 +683,7 @@ export const create = mutation({
       dateRangeEnd: args.dateRangeEnd,
       recurringStartDate: args.recurringStartDate,
       creatorTimezone: args.creatorTimezone,
+      disallowCantDo: args.disallowCantDo ?? true,
       createdAt: Date.now(),
     });
   },
@@ -765,6 +767,7 @@ export const update = mutation({
         // rebuild the projection instead of stranding rows whose dayKey no
         // longer matches the coordinates their source uses.
         if (sel.source === "calendar") continue;
+        if (schedule.disallowCantDo && sel.state === "cant-do") continue;
 
         const dow = getDayOfWeekFromISODate(sel.dayKey);
         const key = `${sel.profileId}|${dow}|${sel.timeSlot}`;
@@ -1184,6 +1187,75 @@ export const setAcceptParticipation = mutation({
     await ctx.db.patch(args.scheduleId, {
       acceptParticipation: args.acceptParticipation,
     });
+  },
+});
+
+function cantDoSelections(ctx: MutationCtx, scheduleId: Id<"schedules">) {
+  return ctx.db
+    .query("selections")
+    .withIndex("by_scheduleId_and_state", (q) =>
+      q.eq("scheduleId", scheduleId).eq("state", "cant-do")
+    );
+}
+
+async function clearCantDoSelectionsBatch(
+  ctx: MutationCtx,
+  scheduleId: Id<"schedules">
+) {
+  const batch = await cantDoSelections(ctx, scheduleId)
+    .take(SCHEDULE_CLEANUP_BATCH_SIZE + 1);
+  for (const selection of batch.slice(0, SCHEDULE_CLEANUP_BATCH_SIZE)) {
+    await ctx.db.delete("selections", selection._id);
+  }
+  if (batch.length > SCHEDULE_CLEANUP_BATCH_SIZE) {
+    await ctx.scheduler.runAfter(0, internal.schedules.continueClearCantDoSelections, {
+      scheduleId,
+    });
+  }
+}
+
+export const continueClearCantDoSelections = internalMutation({
+  args: { scheduleId: v.id("schedules") },
+  returns: v.null(),
+  handler: async (ctx, { scheduleId }) => {
+    const schedule = await ctx.db.get("schedules", scheduleId);
+    if (schedule?.disallowCantDo) {
+      await clearCantDoSelectionsBatch(ctx, scheduleId);
+    }
+    return null;
+  },
+});
+
+export const setDisallowCantDo = mutation({
+  args: {
+    scheduleId: v.id("schedules"),
+    anonymousClaim: v.optional(v.string()),
+    disallowCantDo: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, { scheduleId, anonymousClaim, disallowCantDo }) => {
+    const schedule = await ctx.db.get("schedules", scheduleId);
+    if (!schedule) return null;
+    await requireScheduleCreator(ctx, schedule, anonymousClaim);
+    if ((schedule.disallowCantDo ?? false) === disallowCantDo) return null;
+
+    if (disallowCantDo) {
+      await ctx.db.patch("schedules", scheduleId, {
+        disallowCantDo,
+        cantDoRevision: (schedule.cantDoRevision ?? 0) + 1,
+      });
+      await clearCantDoSelectionsBatch(ctx, scheduleId);
+    } else {
+      if (await cantDoSelections(ctx, scheduleId).first()) {
+        throw new ConvexError(
+          "Can’t Do responses are still being removed. Try again in a moment."
+        );
+      }
+      await ctx.db.patch("schedules", scheduleId, { disallowCantDo });
+    }
+
+    await notifyDiscordForceQueue(ctx, scheduleId);
+    return null;
   },
 });
 

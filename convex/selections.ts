@@ -346,6 +346,7 @@ async function restoreCalendarBaseline(
     timeSlot: string;
     timezone?: string;
     existing: Doc<"selections">[];
+    disallowCantDo?: boolean;
   }
 ): Promise<boolean> {
   const overrides = await getCalendarOverridesForCell(
@@ -368,6 +369,8 @@ async function restoreCalendarBaseline(
   for (const override of overrides) {
     await ctx.db.delete(override._id);
   }
+
+  if (args.disallowCantDo) return false;
 
   const primary = calendarSelection ?? args.existing[0];
   if (primary) {
@@ -453,13 +456,17 @@ async function removeSavedAvailabilitySlot(
   ctx: MutationCtx,
   savedAvailabilityId: Id<"savedAvailabilities">,
   dayKey: string,
-  timeSlot: string
+  timeSlot: string,
+  preserveCantDo: boolean | undefined
 ) {
   const savedAvail = await ctx.db.get(savedAvailabilityId);
   if (!savedAvail) return;
 
   const newSlots = savedAvail.slots.filter(
-    (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
+    (s) =>
+      s.dayKey !== dayKey ||
+      s.timeSlot !== timeSlot ||
+      (preserveCantDo && s.state === "cant-do")
   );
   await ctx.db.patch(savedAvailabilityId, { slots: newSlots });
 }
@@ -483,6 +490,7 @@ export const set = mutation({
     scheduleTimeSlot: v.optional(v.string()),
     anonymousClaim: v.optional(v.string()),
   },
+  returns: v.union(v.id("selections"), v.null()),
   handler: async (ctx, args) => {
     const access = await getSelectionAccess(
       ctx,
@@ -491,6 +499,7 @@ export const set = mutation({
       args.anonymousClaim
     );
     if (!access) return null;
+    if (access.schedule.disallowCantDo && args.state === "cant-do") return null;
 
     // Guard: reject if participation denied (closed or blocked)
     if (await isParticipationDenied(ctx, args.scheduleId, args.profileId, access.actorIsCreator)) {
@@ -688,7 +697,8 @@ export const remove = mutation({
           ctx,
           link.savedAvailabilityId,
           args.dayKey,
-          args.timeSlot
+          args.timeSlot,
+          schedule.disallowCantDo
         );
         await notifyDiscordIfLockedImpacted(ctx, args.scheduleId, [
           { dayKey: scheduleDayKey, timeSlot: scheduleTimeSlot },
@@ -716,6 +726,7 @@ export const remove = mutation({
         timeSlot: args.timeSlot,
         timezone: args.timezone,
         existing,
+        disallowCantDo: schedule.disallowCantDo,
       })
     ) {
       await notifyDiscordIfLockedImpacted(ctx, args.scheduleId, [
@@ -741,6 +752,7 @@ async function applySelectionCell(
     profileId: Id<"userProfiles">;
     timezone: string;
     selection: BatchSelection;
+    disallowCantDo?: boolean;
   }
 ) {
   const sel = args.selection;
@@ -764,6 +776,7 @@ async function applySelectionCell(
       timeSlot: sel.timeSlot,
       timezone,
       existing,
+      disallowCantDo: args.disallowCantDo,
     });
     if (!restoredCalendarBaseline) {
       for (const record of existing) {
@@ -818,12 +831,10 @@ async function processBatchSetSelections(
     selections: BatchSelection[];
     actorIsCreator: boolean;
     batchStartedAt: number;
+    cantDoRevision?: number;
   }
 ) {
-  const selections = compactSelections(args.selections);
-  const chunk = selections.slice(0, BATCH_SET_SELECTION_LIMIT);
-  const remaining = selections.slice(BATCH_SET_SELECTION_LIMIT);
-  if (chunk.length === 0) return { processed: 0, scheduled: 0 };
+  if (args.selections.length === 0) return { processed: 0, scheduled: 0 };
 
   const [schedule, targetProfile, invalidated] = await Promise.all([
     ctx.db.get(args.scheduleId),
@@ -838,6 +849,15 @@ async function processBatchSetSelections(
   if (!schedule || !targetProfile || invalidated) {
     return { processed: 0, scheduled: 0 };
   }
+
+  const allowCantDo =
+    !schedule.disallowCantDo && schedule.cantDoRevision === args.cantDoRevision;
+  const selections = compactSelections(args.selections).filter(
+    (selection) => allowCantDo || selection.state !== "cant-do"
+  );
+  const chunk = selections.slice(0, BATCH_SET_SELECTION_LIMIT);
+  const remaining = selections.slice(BATCH_SET_SELECTION_LIMIT);
+  if (chunk.length === 0) return { processed: 0, scheduled: 0 };
 
   if (
     await isParticipationDenied(
@@ -917,8 +937,13 @@ async function processBatchSetSelections(
       );
 
       for (const sel of nonExceptionSels) {
+        // Clearing a blank cell must preserve hidden slots used by other schedules.
+        const preserveCantDo = sel.state === "blank" && schedule.disallowCantDo;
         slots = slots.filter(
-          (s) => !(s.dayKey === sel.dayKey && s.timeSlot === sel.timeSlot)
+          (s) =>
+            s.dayKey !== sel.dayKey ||
+            s.timeSlot !== sel.timeSlot ||
+            (preserveCantDo && s.state === "cant-do")
         );
         if (sel.state !== "blank") {
           slots.push({
@@ -945,6 +970,7 @@ async function processBatchSetSelections(
         profileId: args.profileId,
         timezone: args.timezone,
         selection: sel,
+        disallowCantDo: schedule.disallowCantDo,
       });
     }
   } else {
@@ -956,6 +982,7 @@ async function processBatchSetSelections(
         profileId: args.profileId,
         timezone: args.timezone,
         selection: sel,
+        disallowCantDo: schedule.disallowCantDo,
       });
     }
   }
@@ -968,6 +995,7 @@ async function processBatchSetSelections(
       selections: remaining,
       actorIsCreator: args.actorIsCreator,
       batchStartedAt: args.batchStartedAt,
+      cantDoRevision: args.cantDoRevision,
     });
   }
 
@@ -1011,6 +1039,7 @@ export const batchSet = mutation({
       selections: args.selections,
       actorIsCreator: access.actorIsCreator,
       batchStartedAt,
+      cantDoRevision: access.schedule.cantDoRevision,
     });
   },
 });
@@ -1037,6 +1066,7 @@ export const continueBatchSet = internalMutation({
     selections: v.array(batchSelectionValidator),
     actorIsCreator: v.boolean(),
     batchStartedAt: v.number(),
+    cantDoRevision: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     return await processBatchSetSelections(ctx, args);

@@ -71,6 +71,7 @@ function schedulesCreate(args: Args) {
     dateRangeEnd: args.dateRangeEnd,
     recurringStartDate: args.recurringStartDate,
     creatorTimezone: args.creatorTimezone,
+    disallowCantDo: args.disallowCantDo ?? true,
     createdAt: Date.now(),
   });
 }
@@ -90,6 +91,18 @@ function schedulesUpdate(args: Args) {
   if (args.recurringStartDate !== undefined) updates.recurringStartDate = args.recurringStartDate;
 
   store.patch("schedules", args.scheduleId, updates);
+}
+
+function setDisallowCantDo(args: Args) {
+  store.patch("schedules", args.scheduleId, { disallowCantDo: args.disallowCantDo });
+  if (!args.disallowCantDo) return null;
+
+  for (const selection of store.query("selections")) {
+    if (selection.scheduleId === args.scheduleId && selection.state === "cant-do") {
+      store.remove("selections", selection._id);
+    }
+  }
+  return null;
 }
 
 function schedulesRemove(args: Args) {
@@ -290,6 +303,9 @@ function unblockParticipant(args: Args) {
 // ---------------------------------------------------------------------------
 
 function selectionsSet(args: Args) {
+  const schedule = store.get("schedules", args.scheduleId);
+  if (schedule?.disallowCantDo && args.state === "cant-do") return null;
+
   // Find existing selection for this cell
   const existing = store.query("selections").find(
     (s) =>
@@ -412,6 +428,7 @@ export const mutationHandlers: Record<string, Handler> = {
   "schedules:clearDisallowedSlots": clearDisallowedSlots,
   "schedules:clearLockedSlots": clearLockedSlots,
   "schedules:setAcceptParticipation": setAcceptParticipation,
+  "schedules:setDisallowCantDo": setDisallowCantDo,
   "schedules:removeParticipant": removeParticipant,
   "schedules:blockParticipant": blockParticipant,
   "schedules:unblockParticipant": unblockParticipant,
