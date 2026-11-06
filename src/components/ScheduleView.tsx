@@ -35,8 +35,21 @@ type SelectMode = "auto" | "can-do" | "cant-do" | "maybe" | "blank";
 type AllowMode = "auto" | "allow" | "dont-allow";
 type CreatorMode = "limit" | "nominate" | "lock" | null;
 
+function readViewedWeeks(storageKey: string): string[] {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+    return Array.isArray(stored) ? stored.filter((week) => typeof week === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function ScheduleView() {
   const { id } = useParams<{ id: string }>();
+  return <SchedulePage key={id} id={id} />;
+}
+
+function SchedulePage({ id }: { id: string | undefined }) {
   const { isAuthenticated } = useGoogleAuth();
   const { showToast } = useToast();
   const { anonymousClaim, displayName, setDisplayName, hasInteracted } =
@@ -80,6 +93,8 @@ export function ScheduleView() {
   const [allowMode, setAllowMode] = useState<AllowMode>("auto");
   const [creatorMode, setCreatorMode] = useState<CreatorMode>(null);
   const [weekOffset, setWeekOffset] = useState(0);
+  const viewedWeeksKey = `when_viewed_schedule_weeks:${id}`;
+  const [viewedWeeks, setViewedWeeks] = useState(() => new Set(readViewedWeeks(viewedWeeksKey)));
   const [hasName, setHasName] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -141,9 +156,22 @@ export function ScheduleView() {
     && !isParticipationClosed;
 
   // The reference date for the current week view
-  const referenceDate = DateTime.now()
-    .setZone(timezone)
-    .plus({ weeks: weekOffset });
+  const referenceDate = DateTime.now().setZone(timezone).plus({ weeks: weekOffset });
+  const weekStartDay = profile?.weekStartDay ?? 0;
+  const weekDates = getWeekDates(referenceDate, weekStartDay);
+  const viewedWeek = weekDates[0].toISODate();
+
+  useEffect(() => {
+    if (schedule?.type !== "one-off" || !viewedWeek || viewedWeeks.has(viewedWeek)) return;
+
+    const updatedWeeks = new Set([...viewedWeeks, ...readViewedWeeks(viewedWeeksKey), viewedWeek]);
+    setViewedWeeks(updatedWeeks);
+    try {
+      localStorage.setItem(viewedWeeksKey, JSON.stringify([...updatedWeeks]));
+    } catch {
+      // Visits are still remembered while this schedule is open.
+    }
+  }, [schedule?.type, viewedWeek, viewedWeeks, viewedWeeksKey]);
 
   useEffect(() => {
     if (hasInteracted || isAuthenticated) {
@@ -701,8 +729,6 @@ export function ScheduleView() {
     );
   }
 
-  const weekStartDay = profile?.weekStartDay ?? 0;
-
   // Determine navigation boundaries based on schedule type
   const getNavigationBoundaries = () => {
     if (schedule.type === "one-off") {
@@ -734,6 +760,13 @@ export function ScheduleView() {
   };
 
   const boundaries = getNavigationBoundaries();
+  const nextWeekStart = getWeekDates(referenceDate.plus({ weeks: 1 }), weekStartDay)[0].toISODate()!;
+  const canGoForward = !boundaries.maxDate || nextWeekStart <= boundaries.maxDate.toISODate()!;
+  const highlightNextWeek =
+    weekOffset >= 0 &&
+    boundaries.maxDate !== null &&
+    canGoForward &&
+    !viewedWeeks.has(nextWeekStart);
 
   // Check if we can navigate backward (prev week has any overlap with date range)
   const canGoBack = () => {
@@ -743,14 +776,6 @@ export function ScheduleView() {
     return prevWeekEnd.toISODate()! >= boundaries.minDate.toISODate()!;
   };
 
-  // Check if we can navigate forward (next week has any overlap with date range)
-  const canGoForward = () => {
-    if (!boundaries.maxDate) return true;
-    const nextWeekDates = getWeekDates(referenceDate.plus({ weeks: 1 }), weekStartDay);
-    const nextWeekStart = nextWeekDates[0]; // First day of next week
-    return nextWeekStart.toISODate()! <= boundaries.maxDate.toISODate()!;
-  };
-
   const handleWeekBack = () => {
     if (canGoBack()) {
       setWeekOffset((w) => w - 1);
@@ -758,7 +783,7 @@ export function ScheduleView() {
   };
 
   const handleWeekForward = () => {
-    if (canGoForward()) {
+    if (canGoForward) {
       setWeekOffset((w) => w + 1);
     }
   };
@@ -1100,15 +1125,12 @@ export function ScheduleView() {
               <ArrowLeft className={styles.iconSm} aria-hidden="true" />
             </button>
             <span className={styles.weekRange}>
-              {(() => {
-                const weekDates = getWeekDates(referenceDate, weekStartDay);
-                return `${weekDates[0].toFormat("MMM d")} – ${weekDates[6].toFormat("MMM d, yyyy")}`;
-              })()}
+              {`${weekDates[0].toFormat("MMM d")} – ${weekDates[6].toFormat("MMM d, yyyy")}`}
             </span>
             <button
               onClick={handleWeekForward}
-              disabled={!canGoForward()}
-              className={styles.navButton}
+              disabled={!canGoForward}
+              className={cx(styles.navButton, highlightNextWeek && styles.navButtonFutureWeek)}
               title="Next week"
               aria-label="Next week"
             >

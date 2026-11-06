@@ -692,6 +692,25 @@
   background: var(--color-surface-muted);
 }
 
+.navButtonFutureWeek::after {
+  content: "";
+  position: absolute;
+  inset: 1px calc(5% + 1px);
+  border: 2px solid var(--color-accent-soft-border);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .navButtonFutureWeek::after {
+    animation: futureWeekOutline 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes futureWeekOutline {
+  50% { opacity: 0; }
+}
+
 .linkButton {
   color: var(--color-accent);
   font-size: 0.75rem;
