@@ -1365,9 +1365,7 @@ export function WeeklyGrid({
                         : undefined}
                       onPointerLeave={canShowNominations || isNominationAnchor ? (event) => {
                         const anchor = event.currentTarget;
-                        setNominationHover((current) =>
-                          current?.anchor === anchor ? null : current,
-                        );
+                        setNominationHover((current) => current?.anchor === anchor ? null : current);
                       } : undefined}
                       style={{ height: 24, padding: "1px" }}
                     >

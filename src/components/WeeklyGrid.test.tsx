@@ -758,6 +758,7 @@ describe("WeeklyGrid participant timezone editing", () => {
         clientX: 250, clientY: 440,
       });
       const popover = screen.getByRole("region", { name: "Cell availability" });
+      expect(within(popover).getByLabelText("3 of 5 participants available, including 1 maybe").textContent).toBe("3(1)/5");
       const names = (label: string) => within(popover).getAllByRole("list", { name: label })
         .flatMap((list) => within(list).queryAllByRole("listitem").map((row) => row.lastElementChild?.textContent));
       expect(names("Can Do")).toEqual(["Cam", "Zoe"]);
@@ -778,6 +779,7 @@ describe("WeeklyGrid participant timezone editing", () => {
       const blankCell = container.querySelectorAll("tbody tr")[19].querySelectorAll("td")[2];
       fireEvent.pointerMove(blankCell, { clientX: 250, clientY: 465 });
       const blankPopover = screen.getByRole("region", { name: "Cell availability" });
+      expect(within(blankPopover).getByLabelText("0 of 5 participants available").textContent).toBe("0/5");
       expect(within(blankPopover).getAllByRole("listitem").map((row) => row.lastElementChild?.textContent))
         .toEqual(["Ari", "Bea", "Cam", "Dee", "Zoe"]);
       expect(blankCell.querySelectorAll("img")).toHaveLength(0);
@@ -788,6 +790,12 @@ describe("WeeklyGrid participant timezone editing", () => {
       expect(screen.getByRole("region", { name: "Cell availability" })).toBeTruthy();
       fireEvent.pointerOut(blankCell, { relatedTarget: document.body });
       expect(screen.queryByRole("region", { name: "Cell availability" })).toBeNull();
+      // Moving toward where the popup was must immediately inspect the next
+      // cell, rather than holding the previous cell's contents in place.
+      fireEvent.pointerMove(container.querySelectorAll("tbody tr")[18].querySelectorAll("td")[2], {
+        clientX: 251, clientY: 400,
+      });
+      expect(screen.getByLabelText("3 of 5 participants available, including 1 maybe").textContent).toBe("3(1)/5");
     } finally {
       viewportWidth.mockRestore();
     }

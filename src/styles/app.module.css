@@ -2022,6 +2022,7 @@ tr:has(> .gridCell:hover) > .timeCell {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  justify-content: space-between;
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text-muted);
@@ -2031,8 +2032,25 @@ tr:has(> .gridCell:hover) > .timeCell {
   color: var(--color-text);
 }
 
+.nominationDetailsHeader .nominationTotal {
+  flex-shrink: 0;
+}
+
+.nominationAvailable[data-coverage="green"] {
+  color: var(--color-can-do);
+}
+
+.nominationAvailable[data-coverage="yellow"],
+.nominationMaybe {
+  color: var(--color-maybe);
+}
+
+.nominationAvailable[data-coverage="red"] {
+  color: var(--color-cant-do);
+}
+
 .nominationList {
-  margin: var(--space-2) 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -2061,9 +2079,17 @@ tr:has(> .gridCell:hover) > .timeCell {
 }
 
 .nominationColumn {
+  min-width: 0;
   padding: var(--space-2);
   border-top: 2px solid var(--nomination-color);
   background: var(--color-surface-muted);
+}
+
+.nominationGroupColumns {
+  display: grid;
+  align-items: start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .nominationColumn li {
