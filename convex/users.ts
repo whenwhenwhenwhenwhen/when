@@ -7,7 +7,9 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { nominationHoverStyle } from "./schema";
 import {
+  normalizeNominationHoverStyle,
   isValidNominationHoverDelay,
   MAX_NOMINATION_HOVER_DELAY_MS,
 } from "../shared/nominationHover";
@@ -413,6 +415,7 @@ export const currentUserProfile = query({
     dstNotifications: v.boolean(),
     nominationHoverEnabled: v.boolean(),
     nominationHoverDelayMs: v.number(),
+    nominationHoverStyle,
     isAuthenticated: v.boolean(),
     authType: v.union(v.literal("sso"), v.literal("anonymous")),
     ssoName: v.optional(v.string()),
@@ -440,6 +443,7 @@ export const currentUserProfile = query({
       dstNotifications: profile.dstNotifications,
       nominationHoverEnabled: profile.nominationHoverEnabled ?? true,
       nominationHoverDelayMs: profile.nominationHoverDelayMs ?? 0,
+      nominationHoverStyle: normalizeNominationHoverStyle(profile.nominationHoverStyle),
       isAuthenticated: identity !== null,
       authType: identity !== null ? ("sso" as const) : ("anonymous" as const),
       ssoName: identity?.name,
@@ -459,6 +463,7 @@ export const updateProfile = mutation({
     dstNotifications: v.optional(v.boolean()),
     nominationHoverEnabled: v.optional(v.boolean()),
     nominationHoverDelayMs: v.optional(v.number()),
+    nominationHoverStyle: v.optional(nominationHoverStyle),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -482,6 +487,9 @@ export const updateProfile = mutation({
         throw new Error(`Nomination hover delay must be a whole number from 0 to ${MAX_NOMINATION_HOVER_DELAY_MS} ms`);
       }
       cleanUpdates.nominationHoverDelayMs = args.nominationHoverDelayMs;
+    }
+    if (args.nominationHoverStyle !== undefined) {
+      cleanUpdates.nominationHoverStyle = args.nominationHoverStyle;
     }
 
     await ctx.db.patch(profile._id, cleanUpdates);

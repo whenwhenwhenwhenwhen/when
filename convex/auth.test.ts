@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { convexTest } from "convex-test";
 import googlyAuthComponent from "@clammet/convex-googly-auth/test";
+import type { NominationHoverStyle } from "../shared/nominationHover";
 import { api } from "./_generated/api";
 import schema from "./schema";
 
@@ -57,17 +58,22 @@ describe("googly auth profile integration", () => {
 
   it("defaults, saves, and validates nomination hover preferences on the caller's profile", async () => {
     const t = setup();
-    await ensureAnonymous(t, CLAIM_A, "Alice");
+    const profileId = await ensureAnonymous(t, CLAIM_A, "Alice");
     const bob = asGoogleUser(t, "bob");
     await bob.mutation(api.users.ensureProfile, { timezone: "UTC" });
 
     expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
-      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 0 });
+      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 0, nominationHoverStyle: "roster" });
+
+    await t.run(async (ctx) => ctx.db.patch(profileId, { nominationHoverStyle: "cards" }));
+    expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
+      .toMatchObject({ nominationHoverStyle: "roster" });
 
     await t.mutation(api.users.updateProfile, {
       anonymousClaim: CLAIM_A,
       nominationHoverEnabled: false,
       nominationHoverDelayMs: 450,
+      nominationHoverStyle: "inspector",
     });
     await bob.mutation(api.users.updateProfile, { nominationHoverDelayMs: 200 });
 
@@ -79,10 +85,17 @@ describe("googly auth profile integration", () => {
       })).rejects.toThrow("Nomination hover delay");
     }
 
+    for (const style of ["unsupported", "cards"]) {
+      await expect(t.mutation(api.users.updateProfile, {
+        anonymousClaim: CLAIM_A,
+        nominationHoverStyle: style as NominationHoverStyle,
+      })).rejects.toThrow();
+    }
+
     expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
-      .toMatchObject({ nominationHoverEnabled: false, nominationHoverDelayMs: 450 });
+      .toMatchObject({ nominationHoverEnabled: false, nominationHoverDelayMs: 450, nominationHoverStyle: "inspector" });
     expect(await bob.query(api.users.currentUserProfile, {}))
-      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 200 });
+      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 200, nominationHoverStyle: "roster" });
   });
 
   it("rejects malformed anonymous claims", async () => {

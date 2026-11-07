@@ -49,6 +49,7 @@ function updateProfile(args: Args) {
   if (args.dstNotifications !== undefined) clean.dstNotifications = args.dstNotifications;
   if (args.nominationHoverEnabled !== undefined) clean.nominationHoverEnabled = args.nominationHoverEnabled;
   if (args.nominationHoverDelayMs !== undefined) clean.nominationHoverDelayMs = args.nominationHoverDelayMs;
+  if (args.nominationHoverStyle !== undefined) clean.nominationHoverStyle = args.nominationHoverStyle;
   store.patch("userProfiles", profile._id, clean);
   return null;
 }

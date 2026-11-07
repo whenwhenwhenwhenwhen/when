@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Settings } from "luxon";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Id } from "../../convex/_generated/dataModel";
@@ -43,6 +43,7 @@ describe("WeeklyGrid participant timezone editing", () => {
   });
 
   afterEach(() => {
+    cleanup();
     Settings.now = () => Date.now();
     Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
   });
@@ -680,7 +681,7 @@ describe("WeeklyGrid participant timezone editing", () => {
     expect(getIconNames(container)).toEqual(["Alpha", "Zulu"]);
   });
 
-  it("groups hovered nominations by availability and sorts each group by display name", () => {
+  it.each(["roster", "ribbon", "inspector"] as const)("orders and dismisses %s nominations", (nominationHoverStyle) => {
     const nominations = [
       { profileId: "a", displayName: "Ari", state: "maybe" },
       { profileId: "b", displayName: "Zoe", state: "can-do" },
@@ -715,6 +716,8 @@ describe("WeeklyGrid participant timezone editing", () => {
         userTimezone={timezone}
         selectionTimezone={timezone}
         weekStartDay={0}
+        nominationHoverStyle={nominationHoverStyle}
+        nominationHoverDelayMs={nominationHoverStyle === "roster" ? 0 : 5000}
         selectMode="auto"
         allowMode="auto"
         weekOffset={0}
@@ -736,14 +739,19 @@ describe("WeeklyGrid participant timezone editing", () => {
       viewportWidth.mockRestore();
     }
 
-    const popup = screen.getByRole("list", { name: "Nominations" });
-    expect(within(popup).getAllByRole("listitem").map((row) =>
-      Array.from(row.children).slice(1).map((element) => element.textContent)
+    const list = screen.getByRole("list", { name: "Nominations" });
+    expect(within(list).getAllByRole("listitem").map((row) =>
+      Array.from(row.children).slice(-2).map((element) => element.textContent)
     )).toEqual([
       ["Cam", "Can Do"],
       ["Zoe", "Can Do"],
       ["Bea", "Can't Do"],
       ["Ari", "Maybe"],
     ]);
+    const cell = screen.getByRole("img", { name: "Zoe (Can Do)" }).closest("td")!;
+    fireEvent.pointerOut(cell, { relatedTarget: document.body });
+    expect(document.body.contains(list)).toBe(nominationHoverStyle !== "roster");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("list", { name: "Nominations" })).toBeNull();
   });
 });

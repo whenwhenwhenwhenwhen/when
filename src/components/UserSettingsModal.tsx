@@ -5,8 +5,11 @@ import { api } from "../../convex/_generated/api";
 import { getCommonTimezones } from "../lib/timezone";
 import { Id } from "../../convex/_generated/dataModel";
 import {
+  normalizeNominationHoverStyle,
   isValidNominationHoverDelay,
   MAX_NOMINATION_HOVER_DELAY_MS,
+  NOMINATION_HOVER_STYLES,
+  type NominationHoverStyle,
 } from "../../shared/nominationHover";
 import { CalendarSyncSettings } from "./CalendarSyncSettings";
 import { useToast } from "../hooks/useToast";
@@ -21,6 +24,7 @@ interface Profile {
   dstNotifications: boolean;
   nominationHoverEnabled: boolean;
   nominationHoverDelayMs: number;
+  nominationHoverStyle: NominationHoverStyle;
   profileImageUrl?: string;
   isAuthenticated: boolean;
   authType: "sso" | "anonymous";
@@ -44,6 +48,13 @@ const DAY_NAMES = [
   "Friday",
   "Saturday",
 ];
+
+const nominationHoverOptions: Record<NominationHoverStyle, { label: string; description: string }> = {
+  roster: { label: "Name popover", description: "Hovering shows names near cursor." },
+  board: { label: "Status popover", description: "Hovering shows comparison names and counts near cursor." },
+  ribbon: { label: "Names below", description: "Hovering shows names below the grid." },
+  inspector: { label: "Status side", description: "Hovering shows names and counts in a sidebar." },
+};
 
 function formatTzLabel(tz: string): string {
   // "America/New_York" -> "New York (America)"
@@ -150,11 +161,15 @@ export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
   );
   const [nominationHoverEnabled, setNominationHoverEnabled] = useState(profile.nominationHoverEnabled);
   const [nominationHoverDelay, setNominationHoverDelay] = useState(String(profile.nominationHoverDelayMs));
+  const [nominationHoverStyle, setNominationHoverStyle] = useState(
+    normalizeNominationHoverStyle(profile.nominationHoverStyle),
+  );
   const [saving, setSaving] = useState(false);
   const [timezoneSearch, setTimezoneSearch] = useState("");
   const hoverDelayMs = Number(nominationHoverDelay);
   const validHoverDelay = nominationHoverDelay !== "" && isValidNominationHoverDelay(hoverDelayMs);
-  const invalidEnabledHoverDelay = nominationHoverEnabled && !validHoverDelay;
+  const showHoverDelay = nominationHoverStyle === "roster" || nominationHoverStyle === "board";
+  const invalidEnabledHoverDelay = nominationHoverEnabled && showHoverDelay && !validHoverDelay;
 
   const handleSave = async () => {
     setSaving(true);
@@ -166,7 +181,8 @@ export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
         weekStartDay,
         dstNotifications,
         nominationHoverEnabled,
-        nominationHoverDelayMs: validHoverDelay ? hoverDelayMs : undefined,
+        nominationHoverDelayMs: showHoverDelay ? (validHoverDelay ? hoverDelayMs : undefined) : 0,
+        nominationHoverStyle,
       });
       onClose();
 
@@ -312,28 +328,50 @@ export function UserSettingsModal({ profile, anonymousClaim, onClose }: Props) {
           </div>
 
           <div>
-            <label htmlFor="nomination-hover-delay" className={styles.fieldLabel}>
-              Hover delay (ms)
+            <label htmlFor="nomination-hover-style" className={styles.fieldLabel}>
+              Cell hover display
             </label>
-            <input
-              type="number"
-              id="nomination-hover-delay"
-              value={nominationHoverDelay}
-              onChange={(e) => setNominationHoverDelay(e.target.value)}
-              min={0}
-              max={MAX_NOMINATION_HOVER_DELAY_MS}
-              step={1}
-              disabled={!nominationHoverEnabled}
-              aria-invalid={invalidEnabledHoverDelay}
-              aria-describedby={invalidEnabledHoverDelay ? "nomination-hover-delay-error" : undefined}
+            <select
+              id="nomination-hover-style"
+              value={nominationHoverStyle}
+              onChange={(e) => setNominationHoverStyle(e.target.value as NominationHoverStyle)}
+              aria-describedby="nomination-hover-style-help"
               className={styles.control}
-            />
-            {invalidEnabledHoverDelay && (
-              <p id="nomination-hover-delay-error" className={styles.errorText}>
-                Enter a whole number from 0 to {MAX_NOMINATION_HOVER_DELAY_MS.toLocaleString()}.
-              </p>
-            )}
+            >
+              {NOMINATION_HOVER_STYLES.map((style) => (
+                <option key={style} value={style}>{nominationHoverOptions[style].label}</option>
+              ))}
+            </select>
+            <p id="nomination-hover-style-help" className={styles.mutedText}>
+              {nominationHoverOptions[nominationHoverStyle].description}
+            </p>
           </div>
+
+          {showHoverDelay && (
+            <div>
+              <label htmlFor="nomination-hover-delay" className={styles.fieldLabel}>
+                Hover delay (ms)
+              </label>
+              <input
+                type="number"
+                id="nomination-hover-delay"
+                value={nominationHoverDelay}
+                onChange={(e) => setNominationHoverDelay(e.target.value)}
+                min={0}
+                max={MAX_NOMINATION_HOVER_DELAY_MS}
+                step={1}
+                disabled={!nominationHoverEnabled}
+                aria-invalid={invalidEnabledHoverDelay}
+                aria-describedby={invalidEnabledHoverDelay ? "nomination-hover-delay-error" : undefined}
+                className={styles.control}
+              />
+              {invalidEnabledHoverDelay && (
+                <p id="nomination-hover-delay-error" className={styles.errorText}>
+                  Enter a whole number from 0 to {MAX_NOMINATION_HOVER_DELAY_MS.toLocaleString()}.
+                </p>
+              )}
+            </div>
+          )}
 
           {profile.authType === "sso" && profile._id && (
             <CalendarSyncSettings

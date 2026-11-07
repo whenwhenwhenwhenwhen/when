@@ -1,5 +1,10 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { NOMINATION_HOVER_STYLES } from "../shared/nominationHover";
+
+export const nominationHoverStyle = v.union(
+  ...NOMINATION_HOVER_STYLES.map((style) => v.literal(style)),
+);
 
 export default defineSchema({
   // App-owned profile data. Credentials and sessions live in googlyAuth.
@@ -16,6 +21,8 @@ export default defineSchema({
     dstNotifications: v.boolean(),
     nominationHoverEnabled: v.optional(v.boolean()),
     nominationHoverDelayMs: v.optional(v.number()),
+    // Accept historical selections until the profile is next saved.
+    nominationHoverStyle: v.optional(v.union(nominationHoverStyle, v.literal("cards"))),
   })
     .index("by_identityId", ["identityId"])
     .index("by_profileImageStorageId_and_profileImageUrl", [
