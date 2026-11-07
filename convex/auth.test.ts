@@ -63,16 +63,17 @@ describe("googly auth profile integration", () => {
     await bob.mutation(api.users.ensureProfile, { timezone: "UTC" });
 
     expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
-      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 0, nominationHoverStyle: "roster" });
+      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 0, nominationHoverDistancePx: 50, nominationHoverStyle: "board" });
 
     await t.run(async (ctx) => ctx.db.patch(profileId, { nominationHoverStyle: "cards" }));
     expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
-      .toMatchObject({ nominationHoverStyle: "roster" });
+      .toMatchObject({ nominationHoverStyle: "board" });
 
     await t.mutation(api.users.updateProfile, {
       anonymousClaim: CLAIM_A,
       nominationHoverEnabled: false,
       nominationHoverDelayMs: 450,
+      nominationHoverDistancePx: 120,
       nominationHoverStyle: "inspector",
     });
     await bob.mutation(api.users.updateProfile, { nominationHoverDelayMs: 200 });
@@ -85,6 +86,13 @@ describe("googly auth profile integration", () => {
       })).rejects.toThrow("Nomination hover delay");
     }
 
+    for (const nominationHoverDistancePx of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(t.mutation(api.users.updateProfile, {
+        anonymousClaim: CLAIM_A,
+        nominationHoverDistancePx,
+      })).rejects.toThrow("Nomination hover distance");
+    }
+
     for (const style of ["unsupported", "cards"]) {
       await expect(t.mutation(api.users.updateProfile, {
         anonymousClaim: CLAIM_A,
@@ -93,9 +101,9 @@ describe("googly auth profile integration", () => {
     }
 
     expect(await t.query(api.users.currentUserProfile, { anonymousClaim: CLAIM_A }))
-      .toMatchObject({ nominationHoverEnabled: false, nominationHoverDelayMs: 450, nominationHoverStyle: "inspector" });
+      .toMatchObject({ nominationHoverEnabled: false, nominationHoverDelayMs: 450, nominationHoverDistancePx: 120, nominationHoverStyle: "board" });
     expect(await bob.query(api.users.currentUserProfile, {}))
-      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 200, nominationHoverStyle: "roster" });
+      .toMatchObject({ nominationHoverEnabled: true, nominationHoverDelayMs: 200, nominationHoverDistancePx: 50, nominationHoverStyle: "board" });
   });
 
   it("rejects malformed anonymous claims", async () => {

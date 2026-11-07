@@ -1,11 +1,9 @@
-import type { CSSProperties, PointerEventHandler, Ref } from "react";
-import { ArrowDownFromLine, ArrowLeftToLine, ArrowRightFromLine, ArrowUpToLine } from "lucide-react";
-import type { NominationHoverStyle } from "../../shared/nominationHover";
-import { cx } from "../lib/classes";
+import { useEffect, useState, type PointerEventHandler, type RefObject } from "react";
+import { getNominationPopupStyle } from "../lib/nominationPopup";
 import styles from "../styles/app.module.css";
 import { ParticipantIcon } from "./ParticipantIcon";
 
-export const nominationOrder = ["can-do", "cant-do", "maybe"] as const;
+export const nominationOrder = ["can-do", "maybe", "cant-do"] as const;
 export type NominationState = typeof nominationOrder[number];
 export const nominationLabels: Record<NominationState, string> = {
   "can-do": "Can Do",
@@ -19,74 +17,54 @@ interface Nomination {
 }
 
 interface Props {
-  layout: NominationHoverStyle;
   nominations: Nomination[];
-  slotLabel?: string;
+  slotLabel: string;
   highlightedId?: string;
-  popupRef?: Ref<HTMLElement>;
-  popupStyle?: CSSProperties;
+  cursorRef: RefObject<{ x: number; y: number }>;
+  distance: number;
   onPointerLeave?: PointerEventHandler<HTMLElement>;
-  collapsed?: boolean;
-  collapsedStyle?: CSSProperties;
-  onToggle?: () => void;
 }
 
 export function NominationDetails({
-  layout,
   nominations,
   slotLabel,
   highlightedId,
-  popupRef,
-  popupStyle,
+  cursorRef,
+  distance,
   onPointerLeave,
-  collapsed = false,
-  collapsedStyle,
-  onToggle,
 }: Props) {
-  const groups = nominationOrder.map((state) => ({
-    state,
-    people: nominations.filter((nomination) => nomination.state === state),
-  }));
-  const toggleLabel = `${collapsed ? "Show" : "Collapse"} ${layout === "ribbon" ? "name ribbon" : "side inspector"}`;
-  const ToggleIcon = layout === "ribbon"
-    ? (collapsed ? ArrowDownFromLine : ArrowUpToLine)
-    : (collapsed ? ArrowRightFromLine : ArrowLeftToLine);
+  const [popupStyle, setPopupStyle] = useState(() => getNominationPopupStyle(cursorRef.current, {
+    width: document.documentElement.clientWidth,
+    height: window.innerHeight,
+  }, distance, parseFloat(getComputedStyle(document.documentElement).fontSize) || 16));
+
+  useEffect(() => {
+    const reposition = () => setPopupStyle(getNominationPopupStyle(cursorRef.current, {
+      width: document.documentElement.clientWidth,
+      height: window.innerHeight,
+    }, distance, parseFloat(getComputedStyle(document.documentElement).fontSize) || 16));
+    reposition();
+    // Cursor movement updates only the popup, without rendering the entire grid.
+    window.addEventListener("pointermove", reposition);
+    return () => window.removeEventListener("pointermove", reposition);
+  }, [cursorRef, distance]);
+
+  if (!popupStyle) return null;
 
   return (
     <section
       aria-label="Cell availability"
-      ref={popupRef}
-      style={collapsed ? collapsedStyle : popupStyle}
-      className={cx(styles.nominationDetails, popupStyle && styles.nominationPopup)}
-      data-layout={layout}
-      data-collapsed={collapsed || undefined}
+      style={popupStyle}
+      className={`${styles.nominationDetails} ${styles.nominationPopup}`}
       onPointerLeave={onPointerLeave}
     >
       <header className={styles.nominationDetailsHeader}>
-        {!collapsed && (
-          <div className={styles.nominationDetailsHeading}>
-            <span>Availability</span>
-            {slotLabel && <strong>{slotLabel}</strong>}
-          </div>
-        )}
-        {onToggle && (
-          <button
-            type="button"
-            onClick={onToggle}
-            className={styles.nominationPanelToggle}
-            aria-expanded={!collapsed}
-            aria-label={toggleLabel}
-            title={toggleLabel}
-          >
-            <ToggleIcon aria-hidden="true" />
-          </button>
-        )}
+        <strong>{slotLabel}</strong>
       </header>
-      {!collapsed && (!slotLabel ? (
-        <p className={styles.nominationHint}>Hover over a cell with nominations.</p>
-      ) : layout === "board" ? (
-        <div className={styles.nominationBoard}>
-          {groups.map(({ state, people }) => (
+      <div className={styles.nominationBoard}>
+        {nominationOrder.map((state) => {
+          const people = nominations.filter((nomination) => nomination.state === state);
+          return (
             <div key={state} className={styles.nominationColumn} data-state={state}>
               <div className={styles.nominationCount}>
                 <span>{nominationLabels[state]}</span>
@@ -101,36 +79,9 @@ export function NominationDetails({
                 ))}
               </ul>
             </div>
-          ))}
-        </div>
-      ) : (
-        <>
-          {layout === "inspector" && (
-            <div className={styles.nominationCounts}>
-              {groups.map(({ state, people }) => (
-                <div key={state} className={styles.nominationCount} data-state={state}>
-                  <strong>{people.length}</strong>
-                  <span>{nominationLabels[state]}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <ul aria-label="Nominations" className={styles.nominationList}>
-            {nominations.map(({ profile, state }) => (
-              <li
-                key={profile._id}
-                className={styles.nominationPerson}
-                data-state={state}
-                data-highlighted={highlightedId === profile._id || undefined}
-              >
-                <ParticipantIcon profile={profile} />
-                <span>{profile.displayName}</span>
-                <small className={styles.nominationStatus}>{nominationLabels[state]}</small>
-              </li>
-            ))}
-          </ul>
-        </>
-      ))}
+          );
+        })}
+      </div>
     </section>
   );
 }

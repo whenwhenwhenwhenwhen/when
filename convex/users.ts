@@ -11,6 +11,8 @@ import { nominationHoverStyle } from "./schema";
 import {
   normalizeNominationHoverStyle,
   isValidNominationHoverDelay,
+  isValidNominationHoverDistance,
+  DEFAULT_NOMINATION_HOVER_DISTANCE_PX,
   MAX_NOMINATION_HOVER_DELAY_MS,
 } from "../shared/nominationHover";
 import {
@@ -415,6 +417,7 @@ export const currentUserProfile = query({
     dstNotifications: v.boolean(),
     nominationHoverEnabled: v.boolean(),
     nominationHoverDelayMs: v.number(),
+    nominationHoverDistancePx: v.number(),
     nominationHoverStyle,
     isAuthenticated: v.boolean(),
     authType: v.union(v.literal("sso"), v.literal("anonymous")),
@@ -443,6 +446,7 @@ export const currentUserProfile = query({
       dstNotifications: profile.dstNotifications,
       nominationHoverEnabled: profile.nominationHoverEnabled ?? true,
       nominationHoverDelayMs: profile.nominationHoverDelayMs ?? 0,
+      nominationHoverDistancePx: profile.nominationHoverDistancePx ?? DEFAULT_NOMINATION_HOVER_DISTANCE_PX,
       nominationHoverStyle: normalizeNominationHoverStyle(profile.nominationHoverStyle),
       isAuthenticated: identity !== null,
       authType: identity !== null ? ("sso" as const) : ("anonymous" as const),
@@ -463,6 +467,7 @@ export const updateProfile = mutation({
     dstNotifications: v.optional(v.boolean()),
     nominationHoverEnabled: v.optional(v.boolean()),
     nominationHoverDelayMs: v.optional(v.number()),
+    nominationHoverDistancePx: v.optional(v.number()),
     nominationHoverStyle: v.optional(nominationHoverStyle),
   },
   returns: v.null(),
@@ -488,9 +493,13 @@ export const updateProfile = mutation({
       }
       cleanUpdates.nominationHoverDelayMs = args.nominationHoverDelayMs;
     }
-    if (args.nominationHoverStyle !== undefined) {
-      cleanUpdates.nominationHoverStyle = args.nominationHoverStyle;
+    if (args.nominationHoverDistancePx !== undefined) {
+      if (!isValidNominationHoverDistance(args.nominationHoverDistancePx)) {
+        throw new Error("Nomination hover distance must be a non-negative whole number of pixels");
+      }
+      cleanUpdates.nominationHoverDistancePx = args.nominationHoverDistancePx;
     }
+    cleanUpdates.nominationHoverStyle = normalizeNominationHoverStyle(args.nominationHoverStyle);
 
     await ctx.db.patch(profile._id, cleanUpdates);
     return null;

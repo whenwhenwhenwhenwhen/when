@@ -6,10 +6,18 @@ export const NOMINATION_HOVER_STYLES = [
 ] as const;
 
 export type NominationHoverStyle = typeof NOMINATION_HOVER_STYLES[number];
-export const DEFAULT_NOMINATION_HOVER_STYLE: NominationHoverStyle = "roster";
+export const DEFAULT_NOMINATION_HOVER_STYLE = "board";
 
-export function normalizeNominationHoverStyle(style?: string): NominationHoverStyle {
-  return NOMINATION_HOVER_STYLES.find((candidate) => candidate === style) ?? DEFAULT_NOMINATION_HOVER_STYLE;
+// Keep historical values valid in stored profiles and requests from older clients.
+// Every profile now uses the status popover.
+export function normalizeNominationHoverStyle(_style?: string): "board" {
+  return DEFAULT_NOMINATION_HOVER_STYLE;
+}
+
+export const DEFAULT_NOMINATION_HOVER_DISTANCE_PX = 50;
+
+export function isValidNominationHoverDistance(distancePx: number): boolean {
+  return Number.isSafeInteger(distancePx) && distancePx >= 0;
 }
 
 // The largest delay supported by browser timers.

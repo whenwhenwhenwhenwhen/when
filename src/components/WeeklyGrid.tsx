@@ -1,10 +1,10 @@
-import { useRef, useCallback, useState, useEffect, useLayoutEffect, useMemo } from "react";
-import type { CSSProperties, PointerEvent } from "react";
+import { useRef, useCallback, useState, useEffect, useMemo } from "react";
+import type { PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { DateTime } from "luxon";
 import { CalendarDays } from "lucide-react";
 import { Id } from "../../convex/_generated/dataModel";
-import { DEFAULT_NOMINATION_HOVER_STYLE, type NominationHoverStyle } from "../../shared/nominationHover";
+import { DEFAULT_NOMINATION_HOVER_DISTANCE_PX } from "../../shared/nominationHover";
 import {
   generateTimeSlots,
   formatTimeSlot,
@@ -57,6 +57,7 @@ interface Schedule {
   creatorProfileId: Id<"userProfiles">;
   selections: Selection[];
   profiles: Profile[];
+  blockedProfileIds?: string[];
   disallowCantDo?: boolean;
   disallowedSlots?: { dayKey: string; timeSlot: string }[];
   lockedSlots?: { dayKey: string; timeSlot: string }[];
@@ -72,8 +73,7 @@ interface Props {
   selectionTimezone: string;
   weekStartDay: number;
   nominationHoverEnabled?: boolean;
-  nominationHoverDelayMs?: number;
-  nominationHoverStyle?: NominationHoverStyle;
+  nominationHoverDistancePx?: number;
   selectMode: SelectMode;
   allowMode: AllowMode;
   weekOffset: number;
@@ -109,7 +109,6 @@ interface Props {
 }
 
 const DEAD_ZONE_PX = 8;
-const NOMINATION_POPUP_GAP = 50;
 const TIME_SLOTS = generateTimeSlots();
 const CELL_ERROR = "Couldn't save your availability. Please try again.";
 const SLOT_ERROR = "Couldn't update the schedule. Please try again.";
@@ -124,7 +123,6 @@ interface NominationHover {
   dayIndex: number;
   timeIndex: number;
   profileId?: string;
-  placement?: CSSProperties | "dock";
 }
 
 interface SelectionBox {
@@ -132,35 +130,6 @@ interface SelectionBox {
   startY: number;
   currentX: number;
   currentY: number;
-}
-
-function getNominationPopupStyle(
-  cell: HTMLTableCellElement,
-  grid: HTMLDivElement
-): CSSProperties | undefined {
-  const { left, right, top, bottom } = cell.getBoundingClientRect();
-  const viewportWidth = document.documentElement.clientWidth;
-  const gridLeft = grid.getBoundingClientRect().left + grid.clientLeft;
-  const timeColumnRight =
-    cell.parentElement?.firstElementChild?.getBoundingClientRect().right ?? gridLeft;
-  const visibleLeft = Math.max(left, gridLeft, timeColumnRight, 0);
-  const visibleRight = Math.min(right, gridLeft + grid.clientWidth, viewportWidth);
-  if (visibleRight <= visibleLeft) return;
-
-  // Center on the visible part of the cell, clamped to the viewport by the popup width.
-  const midpoint = (visibleLeft + visibleRight) / 2;
-  const spaceBelow = window.innerHeight - bottom;
-  const openAbove = spaceBelow < 260 + NOMINATION_POPUP_GAP && top > spaceBelow;
-  const availableHeight = openAbove ? top : spaceBelow;
-  if (availableHeight <= NOMINATION_POPUP_GAP + 8) return;
-
-  return {
-    left: `clamp(8px, calc(${midpoint}px - var(--nomination-width) / 2), calc(100% - var(--nomination-width) - 8px))`,
-    ...(openAbove
-      ? { bottom: window.innerHeight - top + NOMINATION_POPUP_GAP }
-      : { top: bottom + NOMINATION_POPUP_GAP }),
-    maxHeight: `min(18rem, ${availableHeight - NOMINATION_POPUP_GAP - 8}px)`,
-  };
 }
 
 function getSelectionViewerCell(
@@ -191,8 +160,7 @@ export function WeeklyGrid({
   selectionTimezone,
   weekStartDay,
   nominationHoverEnabled = true,
-  nominationHoverDelayMs = 0,
-  nominationHoverStyle = DEFAULT_NOMINATION_HOVER_STYLE,
+  nominationHoverDistancePx = DEFAULT_NOMINATION_HOVER_DISTANCE_PX,
   selectMode,
   allowMode,
   weekOffset,
@@ -206,45 +174,21 @@ export function WeeklyGrid({
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
-  const nominationDockRef = useRef<HTMLElement>(null);
-  const dayHeaderRef = useRef<HTMLTableSectionElement>(null);
-  const [inspectorToggleStyle, setInspectorToggleStyle] = useState<CSSProperties>();
+  const cursorRef = useRef({ x: 0, y: 0 });
   const [nominationHover, setNominationHover] = useState<NominationHover | null>(null);
-  const [collapsedPanels, setCollapsedPanels] = useState({ ribbon: false, inspector: false });
   const nominationAnchor = nominationHover?.anchor;
-  const dockedLayout = nominationHoverEnabled &&
-    (nominationHoverStyle === "ribbon" || nominationHoverStyle === "inspector")
-    ? nominationHoverStyle : undefined;
-  const isPanelCollapsed = dockedLayout !== undefined && collapsedPanels[dockedLayout];
-  const hoverDelayMs = dockedLayout ? 0 : nominationHoverDelayMs;
   const { showToast } = useToast();
 
   useEffect(() => {
     setNominationHover(null);
-  }, [schedule._id, userTimezone, weekStartDay, weekOffset, nominationHoverStyle]);
+  }, [schedule._id, userTimezone, weekStartDay, weekOffset]);
 
   useEffect(() => {
     if (!nominationHoverEnabled) {
       setNominationHover(null);
       return;
     }
-    if (!nominationAnchor || isPanelCollapsed) return;
-
-    const openDetails = () => {
-      const grid = gridRef.current;
-      if (!grid) return;
-
-      const placement = dockedLayout ? "dock" : getNominationPopupStyle(nominationAnchor, grid);
-      if (!placement) return;
-
-      setNominationHover((current) => current?.anchor === nominationAnchor
-        ? { ...current, placement }
-        : current);
-    };
-    const timer = hoverDelayMs > 0
-      ? window.setTimeout(openDetails, hoverDelayMs)
-      : undefined;
-    if (timer === undefined) openDetails();
+    if (!nominationAnchor) return;
 
     const close = () => setNominationHover(null);
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -253,11 +197,10 @@ export function WeeklyGrid({
     window.addEventListener("resize", close);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.clearTimeout(timer);
       window.removeEventListener("resize", close);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nominationAnchor, nominationHoverEnabled, hoverDelayMs, dockedLayout, isPanelCollapsed]);
+  }, [nominationAnchor, nominationHoverEnabled]);
 
   // Drag state. The document listeners are registered once per drag, so the
   // commit path must read the live box from refs rather than from the state
@@ -1195,16 +1138,24 @@ export function WeeklyGrid({
     return map;
   }, [schedule.profiles]);
 
-  const hoveredNominations = nominationHoverEnabled && nominationHover?.placement ? [...new Map(
-    getCellParticipants(nominationHover.dayIndex, nominationHover.timeIndex)
-      .flatMap(({ profileId, state }) => {
-        const profile = profileMap.get(profileId);
-        return profile ? [[profileId, { profile, state }] as const] : [];
-      })
-  ).values()].sort((a, b) =>
-    nominationOrder.indexOf(a.state) - nominationOrder.indexOf(b.state) ||
-    a.profile.displayName.localeCompare(b.profile.displayName)
-  ) : [];
+  const participantProfiles = useMemo(() => {
+    const participantIds = new Set(schedule.selections.map((selection) => selection.profileId));
+    const blockedIds = new Set(schedule.blockedProfileIds);
+    return schedule.profiles.filter((profile) => participantIds.has(profile._id) && !blockedIds.has(profile._id));
+  }, [schedule.selections, schedule.profiles, schedule.blockedProfileIds]);
+
+  const hoveredNominations = useMemo(() => {
+    if (!nominationHoverEnabled || !nominationHover) return [];
+    const states = new Map(getCellParticipants(nominationHover.dayIndex, nominationHover.timeIndex)
+      .map(({ profileId, state }) => [profileId, state]));
+    return participantProfiles.map((profile) => ({
+      profile,
+      state: states.get(profile._id) ?? "cant-do" as const,
+    })).sort((a, b) =>
+      nominationOrder.indexOf(a.state) - nominationOrder.indexOf(b.state) ||
+      a.profile.displayName.localeCompare(b.profile.displayName)
+    );
+  }, [nominationHoverEnabled, nominationHover, getCellParticipants, participantProfiles]);
   const inspectedSlot = nominationHover && hoveredNominations.length > 0
     ? `${weekDates[nominationHover.dayIndex].toFormat("ccc, MMM d")} · ${formatTimeSlot(TIME_SLOTS[nominationHover.timeIndex])}`
     : undefined;
@@ -1216,7 +1167,9 @@ export function WeeklyGrid({
     dayIndex: number,
     timeIndex: number
   ) {
-    if (isPanelCollapsed || isDragging || event.buttons !== 0 || event.pointerType === "touch") return;
+    if (isDragging || event.buttons !== 0 || event.pointerType === "touch") return;
+
+    cursorRef.current = { x: event.clientX, y: event.clientY };
 
     const anchor = event.currentTarget;
     const profileId = (event.target as HTMLElement).dataset.nominationProfile;
@@ -1241,45 +1194,6 @@ export function WeeklyGrid({
   // Date labels for columns
   const columnDates = weekDates.map((d) => d.toFormat("MMM d"));
 
-  useLayoutEffect(() => {
-    if (dockedLayout !== "inspector" || !isPanelCollapsed) return;
-    const grid = gridRef.current;
-    const header = dayHeaderRef.current;
-    if (!grid || !header) return;
-
-    const positionToggle = () => {
-      const root = grid.parentElement!.getBoundingClientRect();
-      const gridBounds = grid.getBoundingClientRect();
-      const headerBounds = header.getBoundingClientRect();
-      const toggleBounds = nominationDockRef.current?.getBoundingClientRect();
-      if (!toggleBounds) return;
-      const toggleRight = gridBounds.left + grid.clientLeft + grid.clientWidth - 8;
-      const toggleLeft = toggleRight - toggleBounds.width;
-      const headings = header.querySelectorAll<HTMLElement>(`.${styles.dayHeadingLabel}`);
-      const overlapsHeading = [...headings].some((heading) => {
-        const bounds = heading.getBoundingClientRect();
-        return bounds.right + 4 > toggleLeft && bounds.left - 4 < toggleRight;
-      });
-      const top = Math.round((overlapsHeading
-        ? headerBounds.bottom + 8
-        : headerBounds.top + (headerBounds.height - toggleBounds.height) / 2) - root.top);
-      const right = Math.round(root.right - toggleRight);
-      setInspectorToggleStyle((current) => current?.top === top && current.right === right
-        ? current : { top, right, bottom: "auto" });
-    };
-
-    positionToggle();
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(positionToggle);
-    observer?.observe(grid);
-    observer?.observe(header);
-    header.querySelectorAll(`.${styles.dayHeadingLabel}`).forEach((heading) => observer?.observe(heading));
-    grid.addEventListener("scroll", positionToggle);
-    return () => {
-      observer?.disconnect();
-      grid.removeEventListener("scroll", positionToggle);
-    };
-  }, [dockedLayout, isPanelCollapsed, weekDates]);
-
   // Selection box rect for rendering
   const selectionRect = useMemo(() => {
     if (!selectionBox || !dragActive) return null;
@@ -1303,7 +1217,7 @@ export function WeeklyGrid({
   }, [isCreator, canLock, creatorMode]);
 
   return (
-    <div className={styles.gridRoot} data-nomination-dock={isPanelCollapsed ? undefined : dockedLayout}>
+    <div className={styles.gridRoot}>
       {/* DST Notice */}
       {dstNotice && (
         <div className={styles.gridNotice}>
@@ -1315,7 +1229,7 @@ export function WeeklyGrid({
       <div
         ref={gridRef}
         className={styles.gridContainer}
-        onScroll={() => setNominationHover((current) => current?.placement === "dock" ? current : null)}
+        onScroll={() => setNominationHover(null)}
       >
         <table
           className={cx(
@@ -1323,7 +1237,7 @@ export function WeeklyGrid({
             !canInteract && styles.noInteract,
           )}
         >
-          <thead ref={dayHeaderRef} className={styles.tableHead}>
+          <thead className={styles.tableHead}>
             <tr>
               <th className={styles.timeHeader}>
                 Time
@@ -1369,7 +1283,7 @@ export function WeeklyGrid({
                     timeIndex
                   );
                   const hasNominations = cellParticipants.length > 0;
-                  const canShowNominations = nominationHoverEnabled && !isPanelCollapsed && hasNominations;
+                  const canShowNominations = nominationHoverEnabled && inRange && participantProfiles.length > 0;
                   const isNominationAnchor =
                     nominationHover?.dayIndex === dayIndex &&
                     nominationHover.timeIndex === timeIndex;
@@ -1433,7 +1347,7 @@ export function WeeklyGrid({
                         }
                       }}
                       className={cellClasses}
-                      data-inspected={isNominationAnchor && inspectedSlot && !isPanelCollapsed ? true : undefined}
+                      data-inspected={isNominationAnchor && inspectedSlot ? true : undefined}
                       title={
                         cellCalendarSynced
                           ? myState === "cant-do"
@@ -1452,7 +1366,7 @@ export function WeeklyGrid({
                       onPointerLeave={canShowNominations || isNominationAnchor ? (event) => {
                         const anchor = event.currentTarget;
                         setNominationHover((current) =>
-                          current?.anchor === anchor && current.placement !== "dock" ? null : current,
+                          current?.anchor === anchor ? null : current,
                         );
                       } : undefined}
                       style={{ height: 24, padding: "1px" }}
@@ -1519,35 +1433,14 @@ export function WeeklyGrid({
         </table>
       </div>
 
-      {dockedLayout && (
+      {inspectedSlot && nominationHover && createPortal(
         <NominationDetails
-          key={inspectedSlot}
-          layout={dockedLayout}
-          nominations={hoveredNominations}
-          slotLabel={inspectedSlot}
-          highlightedId={nominationHover?.profileId}
-          popupRef={nominationDockRef}
-          collapsed={isPanelCollapsed}
-          collapsedStyle={dockedLayout === "inspector" ? inspectorToggleStyle : undefined}
-          onToggle={() => setCollapsedPanels((current) => ({
-            ...current,
-            [dockedLayout]: !current[dockedLayout],
-          }))}
-        />
-      )}
-
-      {!dockedLayout && inspectedSlot && nominationHover?.placement && nominationHover.placement !== "dock" && createPortal(
-        <NominationDetails
-          layout={nominationHoverStyle}
           nominations={hoveredNominations}
           slotLabel={inspectedSlot}
           highlightedId={nominationHover.profileId}
-          popupStyle={nominationHover.placement}
-          onPointerLeave={(event) => {
-            const next = event.relatedTarget;
-            if (next instanceof Node && nominationHover.anchor.contains(next)) return;
-            setNominationHover(null);
-          }}
+          cursorRef={cursorRef}
+          distance={nominationHoverDistancePx}
+          onPointerLeave={() => setNominationHover(null)}
         />,
         document.body
       )}

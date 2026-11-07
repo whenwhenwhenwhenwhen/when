@@ -21,6 +21,7 @@ export default defineSchema({
     dstNotifications: v.boolean(),
     nominationHoverEnabled: v.optional(v.boolean()),
     nominationHoverDelayMs: v.optional(v.number()),
+    nominationHoverDistancePx: v.optional(v.number()),
     // Accept historical selections until the profile is next saved.
     nominationHoverStyle: v.optional(v.union(nominationHoverStyle, v.literal("cards"))),
   })

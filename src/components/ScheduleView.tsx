@@ -1176,8 +1176,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
           selectionTimezone={selectionTimezone}
           weekStartDay={weekStartDay}
           nominationHoverEnabled={profile?.nominationHoverEnabled}
-          nominationHoverDelayMs={profile?.nominationHoverDelayMs}
-          nominationHoverStyle={profile?.nominationHoverStyle}
+          nominationHoverDistancePx={profile?.nominationHoverDistancePx}
           selectMode={activeSelectMode}
           allowMode={allowMode}
           weekOffset={weekOffset}

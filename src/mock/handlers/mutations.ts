@@ -7,6 +7,7 @@
 
 import * as store from "../store";
 import { identityIdForClaim } from "../identity";
+import { normalizeNominationHoverStyle } from "../../../shared/nominationHover";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Args = Record<string, any>;
@@ -49,7 +50,8 @@ function updateProfile(args: Args) {
   if (args.dstNotifications !== undefined) clean.dstNotifications = args.dstNotifications;
   if (args.nominationHoverEnabled !== undefined) clean.nominationHoverEnabled = args.nominationHoverEnabled;
   if (args.nominationHoverDelayMs !== undefined) clean.nominationHoverDelayMs = args.nominationHoverDelayMs;
-  if (args.nominationHoverStyle !== undefined) clean.nominationHoverStyle = args.nominationHoverStyle;
+  if (args.nominationHoverDistancePx !== undefined) clean.nominationHoverDistancePx = args.nominationHoverDistancePx;
+  clean.nominationHoverStyle = normalizeNominationHoverStyle(args.nominationHoverStyle);
   store.patch("userProfiles", profile._id, clean);
   return null;
 }

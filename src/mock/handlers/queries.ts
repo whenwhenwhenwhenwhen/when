@@ -6,7 +6,7 @@
 
 import * as store from "../store";
 import { identityIdForClaim } from "../identity";
-import { normalizeNominationHoverStyle } from "../../../shared/nominationHover";
+import { DEFAULT_NOMINATION_HOVER_DISTANCE_PX, normalizeNominationHoverStyle } from "../../../shared/nominationHover";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Args = Record<string, any>;
@@ -36,6 +36,7 @@ function currentUserProfile(args: Args) {
         dstNotifications: profile.dstNotifications,
         nominationHoverEnabled: profile.nominationHoverEnabled ?? true,
         nominationHoverDelayMs: profile.nominationHoverDelayMs ?? 0,
+        nominationHoverDistancePx: profile.nominationHoverDistancePx ?? DEFAULT_NOMINATION_HOVER_DISTANCE_PX,
         nominationHoverStyle: normalizeNominationHoverStyle(profile.nominationHoverStyle),
         isAuthenticated: false,
         authType: "anonymous",

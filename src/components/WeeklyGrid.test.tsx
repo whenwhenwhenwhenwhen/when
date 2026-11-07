@@ -681,7 +681,7 @@ describe("WeeklyGrid participant timezone editing", () => {
     expect(getIconNames(container)).toEqual(["Alpha", "Zulu"]);
   });
 
-  it.each(["roster", "ribbon", "inspector"] as const)("orders and dismisses %s nominations", (nominationHoverStyle) => {
+  it.each(["recurring", "one-off"] as const)("counts blank slots for schedule participants in the %s status popover", (scheduleType) => {
     const nominations = [
       { profileId: "a", displayName: "Ari", state: "maybe" },
       { profileId: "b", displayName: "Zoe", state: "can-do" },
@@ -694,30 +694,52 @@ describe("WeeklyGrid participant timezone editing", () => {
         schedule={{
           _id: "schedule" as Id<"schedules">,
           title: "Hover order",
-          type: "recurring",
+          type: scheduleType,
           creatorTimezone: timezone,
           creatorProfileId: "creator" as Id<"userProfiles">,
-          selections: nominations.map(({ profileId, state }) => ({
+          selections: [...nominations.map(({ profileId, state }) => ({
             _id: `selection-${profileId}`,
             scheduleId: "schedule",
             profileId,
             state,
+            isException: scheduleType === "recurring" && profileId === "a",
+            exceptionDate: scheduleType === "recurring" && profileId === "a" ? "2026-07-27" : undefined,
+            dayKey: scheduleType === "recurring" ? "1" : "2026-07-27",
+            timeSlot: "09:00",
+            timezone,
+          })), ...(scheduleType === "recurring" ? [{
+            _id: "ari-base",
+            scheduleId: "schedule",
+            profileId: "a",
+            state: "can-do" as const,
             dayKey: "1",
             timeSlot: "09:00",
             timezone,
-          })),
-          profiles: nominations.map(({ profileId, displayName }) => ({
+          }] : []), {
+            _id: "selection-blank",
+            scheduleId: "schedule",
+            profileId: "blank",
+            state: "can-do",
+            dayKey: scheduleType === "recurring" ? "1" : "2026-08-03",
+            timeSlot: "10:00",
+            timezone,
+            isException: scheduleType === "recurring",
+            exceptionDate: scheduleType === "recurring" ? "2026-08-03" : undefined,
+          }],
+          profiles: [...nominations.map(({ profileId, displayName }) => ({
             _id: profileId,
             displayName,
             timezone,
           })),
+            { _id: "blank", displayName: "Dee", timezone },
+            { _id: "creator", displayName: "Creator without selections", timezone },
+          ],
         }}
         profileId={null}
         userTimezone={timezone}
         selectionTimezone={timezone}
         weekStartDay={0}
-        nominationHoverStyle={nominationHoverStyle}
-        nominationHoverDelayMs={nominationHoverStyle === "roster" ? 0 : 5000}
+        nominationHoverDistancePx={75}
         selectMode="auto"
         allowMode="auto"
         weekOffset={0}
@@ -730,28 +752,44 @@ describe("WeeklyGrid participant timezone editing", () => {
         onCreatorSlotChange={vi.fn(() => Promise.resolve())}
       />
     );
-    const grid = container.querySelector(`.${styles.gridContainer}`)!;
-    Object.defineProperty(grid, "clientWidth", { value: 800 });
     const viewportWidth = vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(800);
     try {
-      fireEvent.pointerMove(screen.getByRole("img", { name: "Zoe (Can Do)" }));
+      fireEvent.pointerMove(screen.getByRole("img", { name: "Zoe (Can Do)" }), {
+        clientX: 250, clientY: 440,
+      });
+      const popover = screen.getByRole("region", { name: "Cell availability" });
+      const names = (label: string) => within(popover).getAllByRole("list", { name: label })
+        .flatMap((list) => within(list).queryAllByRole("listitem").map((row) => row.lastElementChild?.textContent));
+      expect(names("Can Do")).toEqual(["Cam", "Zoe"]);
+      expect(names("Can't Do")).toEqual(["Bea", "Dee"]);
+      expect(names("Maybe")).toEqual(["Ari"]);
+      expect(within(popover).queryByText("Creator without selections")).toBeNull();
+      const counts = Array.from(popover.querySelectorAll(`.${styles.nominationCount} strong`));
+      expect(counts.map((count) => count.textContent)).toEqual(["2", "1", "2"]);
+      expect(popover.style.bottom).toBe(`${window.innerHeight - 440 + 75}px`);
+      fireEvent.pointerMove(screen.getByRole("img", { name: "Zoe (Can Do)" }), {
+        clientX: 260, clientY: 450,
+      });
+      expect(popover.style.bottom).toBe(`${window.innerHeight - 450 + 75}px`);
+
+      // Empty cells still show every participant as unavailable, without adding
+      // synthetic selections or profile icons to the grid.
+      fireEvent.pointerOut(screen.getByRole("img", { name: "Zoe (Can Do)" }).closest("td")!, { relatedTarget: document.body });
+      const blankCell = container.querySelectorAll("tbody tr")[19].querySelectorAll("td")[2];
+      fireEvent.pointerMove(blankCell, { clientX: 250, clientY: 465 });
+      const blankPopover = screen.getByRole("region", { name: "Cell availability" });
+      expect(within(blankPopover).getAllByRole("listitem").map((row) => row.lastElementChild?.textContent))
+        .toEqual(["Ari", "Bea", "Cam", "Dee", "Zoe"]);
+      expect(blankCell.querySelectorAll("img")).toHaveLength(0);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("region", { name: "Cell availability" })).toBeNull();
+
+      fireEvent.pointerMove(blankCell, { clientX: 251, clientY: 465 });
+      expect(screen.getByRole("region", { name: "Cell availability" })).toBeTruthy();
+      fireEvent.pointerOut(blankCell, { relatedTarget: document.body });
+      expect(screen.queryByRole("region", { name: "Cell availability" })).toBeNull();
     } finally {
       viewportWidth.mockRestore();
     }
-
-    const list = screen.getByRole("list", { name: "Nominations" });
-    expect(within(list).getAllByRole("listitem").map((row) =>
-      Array.from(row.children).slice(-2).map((element) => element.textContent)
-    )).toEqual([
-      ["Cam", "Can Do"],
-      ["Zoe", "Can Do"],
-      ["Bea", "Can't Do"],
-      ["Ari", "Maybe"],
-    ]);
-    const cell = screen.getByRole("img", { name: "Zoe (Can Do)" }).closest("td")!;
-    fireEvent.pointerOut(cell, { relatedTarget: document.body });
-    expect(document.body.contains(list)).toBe(nominationHoverStyle !== "roster");
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("list", { name: "Nominations" })).toBeNull();
   });
 });
