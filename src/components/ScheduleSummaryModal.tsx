@@ -14,6 +14,8 @@ interface Props {
   onClose: () => void;
 }
 
+type DayGroup = { day: string; windows: ReturnType<typeof getTopScheduleWindows> };
+
 function formatWindowTime(start: DateTime, end: DateTime) {
   const timeFormat = start.offset !== end.offset ||
     start.getPossibleOffsets().length > 1 || end.getPossibleOffsets().length > 1
@@ -35,7 +37,11 @@ function ParticipantRow({ participant }: { participant: SummaryParticipant }) {
       <ParticipantIcon profile={profile} />
       <span>
         {profile.displayName}
-        {state !== "can-do" && <small className={styles.smallText}> ({responseLabels[state]})</small>}
+        {state !== "can-do" && (
+          <small className={cx(styles.smallText, state === "maybe" && styles.scheduleSummaryMaybe)}>
+            {" "}({responseLabels[state]})
+          </small>
+        )}
       </span>
     </li>
   );
@@ -111,13 +117,19 @@ export function ScheduleSummaryModal({ schedule, referenceDate, weekStartDay, on
   const titleId = useId();
   const [includeMaybe, setIncludeMaybe] = useState(true);
   const windows = getTopScheduleWindows(schedule, referenceDate, weekStartDay, includeMaybe);
-  const windowsByDay = new Map<string, typeof windows>();
-  for (const window of windows.sort((a, b) => a.start.toMillis() - b.start.toMillis())) {
+  const voteGroups: { count: number; days: DayGroup[] }[] = [];
+  for (const window of windows) {
     const day = window.start.toISODate();
     if (!day) continue;
-    const dayWindows = windowsByDay.get(day);
-    if (dayWindows) dayWindows.push(window);
-    else windowsByDay.set(day, [window]);
+    const count = window.available.length;
+    let voteGroup = voteGroups.at(-1);
+    if (!voteGroup || voteGroup.count !== count) {
+      voteGroup = { count, days: [] };
+      voteGroups.push(voteGroup);
+    }
+    const previousDay = voteGroup.days.at(-1);
+    if (previousDay?.day === day) previousDay.windows.push(window);
+    else voteGroup.days.push({ day, windows: [window] });
   }
   const countedVotes = includeMaybe ? "“Can Do” or “Maybe”" : "“Can Do”";
   const scope = schedule.type === "one-off"
@@ -177,24 +189,36 @@ export function ScheduleSummaryModal({ schedule, referenceDate, weekStartDay, on
               : `No ${countedVotes} votes for this period yet.`}
           </p>
         </div>
-        {windowsByDay.size > 0 && (
+        {voteGroups.length > 0 && (
           <ul className={cx(styles.listStack, styles.scheduleSummaryList)}>
-            {[...windowsByDay].map(([day, dayWindows]) => (
-              <li key={day} className={styles.scheduleSummaryDay}>
-                <h3 className={styles.sectionTitle}>
-                  {dayWindows[0].start.toLocaleString(DateTime.DATE_MED_WITH_WEEKDAY)}
-                </h3>
-                <ul className={styles.scheduleSummaryList}>
-                  {dayWindows.map(({ start, end, available, unavailable }) => (
-                    <li key={start.toMillis()} className={cx(styles.scheduleSummaryWindow, styles.stackTight)}>
-                      <h4 className={cx(styles.sectionTitle, styles.scheduleSummaryTime)}>{formatWindowTime(start, end)}</h4>
-                      <div className={styles.bodyText}>
-                        <strong>{available.length} {available.length === 1 ? "person" : "people"} {includeMaybe ? "can/maybe" : "can"}</strong>
-                        {" ("}{unavailable.length > 0 ? <UnavailableCount participants={unavailable} /> : "0 people cannot/blank"}{")"}
+            {voteGroups.map(({ count, days }) => (
+              <li key={count} className={styles.scheduleSummaryVoteGroup}>
+                <ul className={cx(styles.listStack, styles.scheduleSummaryList)}>
+                  {days.map(({ windows: dayWindows }) => (
+                    <li key={dayWindows[0].start.toMillis()} className={styles.scheduleSummaryDay}>
+                      <div className={styles.scheduleSummaryDayHeader}>
+                        <h3 className={cx(styles.sectionTitle, styles.scheduleSummaryTime)}>
+                          {dayWindows[0].start.toLocaleString(DateTime.DATE_MED_WITH_WEEKDAY)}
+                        </h3>
+                        <span className={cx(styles.inlineClusterTight, styles.scheduleSummaryVoteCount)} aria-hidden="true">
+                          <span className={styles.scheduleSummaryCanNumber}>{count}</span>
+                          <span className={styles.smallText}>{count === 1 ? "vote" : "votes"}</span>
+                        </span>
                       </div>
-                      <ul aria-label={includeMaybe ? "Can Do or Maybe" : "Can Do"} className={cx(styles.bodyText, styles.scheduleSummaryParticipants)}>
-                        {available.map((participant) => (
-                          <ParticipantRow key={participant.profile._id} participant={participant} />
+                      <ul className={styles.scheduleSummaryList}>
+                        {dayWindows.map(({ start, end, available, unavailable }) => (
+                          <li key={start.toMillis()} className={cx(styles.scheduleSummaryWindow, styles.stackTight)}>
+                            <h4 className={cx(styles.sectionTitle, styles.scheduleSummaryTime)}>{formatWindowTime(start, end)}</h4>
+                            <div className={styles.bodyText}>
+                              {available.length} {available.length === 1 ? "person" : "people"} {includeMaybe ? "can/maybe" : "can"}
+                              {" ("}{unavailable.length > 0 ? <UnavailableCount participants={unavailable} /> : "0 people cannot/blank"}{")"}
+                            </div>
+                            <ul aria-label={includeMaybe ? "Can Do or Maybe" : "Can Do"} className={cx(styles.bodyText, styles.scheduleSummaryParticipants)}>
+                              {available.map((participant) => (
+                                <ParticipantRow key={participant.profile._id} participant={participant} />
+                              ))}
+                            </ul>
+                          </li>
                         ))}
                       </ul>
                     </li>

@@ -432,6 +432,37 @@
   overflow-wrap: anywhere;
 }
 
+.scheduleSummaryVoteGroup {
+  padding: var(--space-3);
+  border: 1px solid var(--color-accent-soft-border);
+  border-inline-start: 3px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+}
+
+.scheduleSummaryDayHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.scheduleSummaryVoteCount {
+  flex-shrink: 0;
+}
+
+.scheduleSummaryCanNumber {
+  display: inline-block;
+  flex-shrink: 0;
+  min-width: 1.5em;
+  padding: var(--space-1) var(--space-1-5);
+  border-radius: var(--radius-md);
+  color: var(--color-accent-soft-text);
+  background: var(--color-accent);
+  text-align: center;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .scheduleSummaryDay {
   padding: var(--space-3);
   border: 1px solid var(--color-border-strong);
@@ -461,6 +492,11 @@
 
 .scheduleSummaryParticipants .profileIcon {
   flex-shrink: 0;
+}
+
+.scheduleSummaryMaybe {
+  color: color-mix(in srgb, var(--color-text-muted) 75%, var(--color-text-faint));
+  font-style: italic;
 }
 
 .scheduleSummaryCount {
