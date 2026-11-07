@@ -25,7 +25,8 @@ function formatWindowTime(start: DateTime, end: DateTime) {
   const endLabel = start.hasSame(end, "day")
     ? endTime
     : `${end.toLocaleString(DateTime.DATE_MED_WITH_WEEKDAY)}, ${endTime}`;
-  return `${start.toLocaleString(timeFormat)} – ${endLabel}`;
+  const hours = end.diff(start, "hours").hours;
+  return `${start.toLocaleString(timeFormat)} – ${endLabel} (${hours} hrs)`;
 }
 
 const responseLabels = { "cant-do": "Can’t Do", maybe: "Maybe", blank: "Blank" };
