@@ -7,7 +7,7 @@ import { useGoogleAuth } from "../lib/authClient";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { Header } from "./Header";
-import { WeeklyGrid } from "./WeeklyGrid";
+import { WeeklyGrid, type SelectMode } from "./WeeklyGrid";
 import { DisplayNamePrompt } from "./DisplayNamePrompt";
 import { ClearConfirmModal } from "./ClearConfirmModal";
 import { AvailabilitiesMenu } from "./AvailabilitiesMenu";
@@ -32,9 +32,9 @@ import { DateTime } from "luxon";
 import { cx } from "../lib/classes";
 import styles from "../styles/app.module.css";
 
-type SelectMode = "auto" | "can-do" | "cant-do" | "maybe" | "blank";
 type AllowMode = "auto" | "allow" | "dont-allow";
 type CreatorMode = "limit" | "nominate" | "lock" | null;
+const SELECT_MODE_STORAGE_KEY = "when_select_mode";
 
 function readViewedWeeks(storageKey: string): string[] {
   try {
@@ -91,7 +91,24 @@ function SchedulePage({ id }: { id: string | undefined }) {
   const blockParticipant = useMutation(api.schedules.blockParticipant);
   const setArchived = useMutation(api.schedules.setArchived);
 
-  const [selectMode, setSelectMode] = useState<SelectMode>("auto");
+  const [selectMode, setSelectMode] = useState<SelectMode>(() => {
+    try {
+      return localStorage.getItem(SELECT_MODE_STORAGE_KEY) === "true" ? "select" : "auto";
+    } catch {
+      return "auto";
+    }
+  });
+  useEffect(() => {
+    try {
+      if (selectMode === "select") {
+        localStorage.setItem(SELECT_MODE_STORAGE_KEY, "true");
+      } else {
+        localStorage.removeItem(SELECT_MODE_STORAGE_KEY);
+      }
+    } catch {
+      // The mode still works for this visit if browser storage is unavailable.
+    }
+  }, [selectMode]);
   const activeSelectMode =
     schedule?.disallowCantDo && selectMode === "cant-do" ? "auto" : selectMode;
   const [allowMode, setAllowMode] = useState<AllowMode>("auto");
@@ -811,6 +828,29 @@ function SchedulePage({ id }: { id: string | undefined }) {
     }
   };
 
+  const inLimitMode = isCreator && creatorMode === "limit";
+  const applyOptions = inLimitMode
+    ? [
+        { value: "auto", label: "Auto", description: "Toggle whether the clicked or dragged region is allowed, based on the starting cell." },
+        { value: "allow", label: "Allow", description: "Allow nominations in every cell you click or drag over." },
+        { value: "dont-allow", label: "Don't Allow", description: "Disallow nominations in every cell you click or drag over." },
+      ]
+    : [
+        { value: "auto", label: "Auto", description: "Apply the next availability in the starting cell's cycle to the entire clicked or dragged region." },
+        { value: "can-do", label: "Can Do", description: "Set the clicked or dragged region to Can Do." },
+        ...(!schedule.disallowCantDo
+          ? [{ value: "cant-do", label: "Can't Do", description: "Set the clicked or dragged region to Can't Do." }]
+          : []),
+        { value: "maybe", label: "Maybe", description: "Set the clicked or dragged region to Maybe." },
+        { value: "blank", label: "Clear", description: "Clear availability in the clicked or dragged region." },
+        {
+          value: "select",
+          label: "Select mode",
+          description: `Select cells without changing availability. Use the popup buttons or A = Can Do, ${schedule.disallowCantDo ? "" : "S = Can't Do, "}D = Maybe, F = Blank. The region stays selected after applying; repeat the last hotkey or press Esc to deselect.`,
+        },
+      ];
+  const applyHelp = applyOptions.map(({ label, description }) => `${label}: ${description}`).join("\n\n");
+
   return (
     <div className={cx(styles.appShell, styles.scheduleShell)}>
       <Header />
@@ -983,32 +1023,18 @@ function SchedulePage({ id }: { id: string | undefined }) {
         <div className={styles.toolbar}>
           {/* Apply mode / Select mode */}
           <div className={styles.inlineClusterTight}>
-            <label className={styles.calendarLabel}>Apply:</label>
-            {isCreator && creatorMode === "limit" ? (
-              <select
-                value={allowMode}
-                onChange={(e) => setAllowMode(e.target.value as AllowMode)}
-                className={styles.selectControl}
-              >
-                <option value="auto">Auto</option>
-                <option value="allow">Allow</option>
-                <option value="dont-allow">Don&apos;t Allow</option>
-              </select>
-            ) : (
-              <select
-                value={activeSelectMode}
-                onChange={(e) => setSelectMode(e.target.value as SelectMode)}
-                className={styles.selectControl}
-              >
-                <option value="auto">Auto</option>
-                <option value="can-do">Can Do</option>
-                {!schedule.disallowCantDo && (
-                  <option value="cant-do">Can&apos;t Do</option>
-                )}
-                <option value="maybe">Maybe</option>
-                <option value="blank">Clear</option>
-              </select>
-            )}
+            <label htmlFor="apply-mode" className={styles.calendarLabel} title={applyHelp}>Apply:</label>
+            <select
+              id="apply-mode"
+              value={inLimitMode ? allowMode : activeSelectMode}
+              onChange={(e) => inLimitMode
+                ? setAllowMode(e.target.value as AllowMode)
+                : setSelectMode(e.target.value as SelectMode)}
+              className={styles.selectControl}
+              title={applyHelp}
+            >
+              {applyOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+            </select>
           </div>
 
           {/* Legend */}

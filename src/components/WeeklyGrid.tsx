@@ -18,11 +18,12 @@ import { getDstNotice } from "../lib/dst";
 import { useToast } from "../hooks/useToast";
 import { cx } from "../lib/classes";
 import { ParticipantIcon } from "./ParticipantIcon";
+import { AvailabilitySelectionToolbar, availabilityActions, type AvailabilityState } from "./AvailabilitySelectionToolbar";
 import { NominationDetails, nominationLabels, nominationOrder, type NominationState } from "./NominationDetails";
 import styles from "../styles/app.module.css";
 
-type CellState = "can-do" | "cant-do" | "maybe" | "blank";
-type SelectMode = "auto" | "can-do" | "cant-do" | "maybe" | "blank";
+type CellState = AvailabilityState;
+export type SelectMode = "auto" | "select" | CellState;
 type AllowMode = "auto" | "allow" | "dont-allow";
 type CreatorMode = "limit" | "nominate" | "lock" | null;
 
@@ -125,11 +126,41 @@ interface NominationHover {
   profileId?: string;
 }
 
-interface SelectionBox {
-  startX: number;
-  startY: number;
-  currentX: number;
-  currentY: number;
+interface GridCell {
+  dayIndex: number;
+  timeIndex: number;
+}
+
+interface CellRange {
+  start: GridCell;
+  end: GridCell;
+}
+
+type GridAction =
+  | { kind: "availability"; state: CellState }
+  | { kind: "slots"; field: "disallowedSlots" | "lockedSlots"; add: boolean }
+  | { kind: "select" };
+
+interface DragGesture {
+  x: number;
+  y: number;
+  range: CellRange;
+  action: GridAction;
+  moved: boolean;
+}
+
+function getRangeCells({ start, end }: CellRange): GridCell[] {
+  const cells: GridCell[] = [];
+  const firstDay = Math.min(start.dayIndex, end.dayIndex);
+  const lastDay = Math.max(start.dayIndex, end.dayIndex);
+  const firstTime = Math.min(start.timeIndex, end.timeIndex);
+  const lastTime = Math.max(start.timeIndex, end.timeIndex);
+  for (let timeIndex = firstTime; timeIndex <= lastTime; timeIndex++) {
+    for (let dayIndex = firstDay; dayIndex <= lastDay; dayIndex++) {
+      cells.push({ dayIndex, timeIndex });
+    }
+  }
+  return cells;
 }
 
 function getSelectionViewerCell(
@@ -202,34 +233,27 @@ export function WeeklyGrid({
     };
   }, [nominationAnchor, nominationHoverEnabled]);
 
-  // Drag state. The document listeners are registered once per drag, so the
-  // commit path must read the live box from refs rather than from the state
-  // captured when the listeners were attached.
+  // One cell range serves clicks, drags, and the retained Select-mode region.
+  // The live gesture ref also keeps document listeners current between renders.
   const [isDragging, setIsDragging] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
-  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
-  const dragActiveRef = useRef(false);
-  const selectionBoxRef = useRef<SelectionBox | null>(null);
-  const dragStartRef = useRef<{
-    x: number;
-    y: number;
-    dayIndex: number;
-    timeIndex: number;
-  } | null>(null);
-  // For regular/nominate mode: stores the CellState to apply
-  // For limit mode: stores "allow" or "dont-allow"
-  // For lock mode: stores "lock" or "unlock"
-  const dragActionRef = useRef<string>("can-do");
+  const [selectedRange, setSelectedRange] = useState<CellRange | null>(null);
+  const gestureRef = useRef<DragGesture | null>(null);
+  const lastShortcutRef = useRef<CellState | null>(null);
+  const isLimitMode = isCreator && creatorMode === "limit";
+  const isLockMode = canLock && creatorMode === "lock";
+  const isSelectMode = selectMode === "select" && !isLimitMode && !isLockMode;
 
-  const setDragActiveState = useCallback((active: boolean) => {
-    dragActiveRef.current = active;
-    setDragActive(active);
+  const clearSelection = useCallback(() => {
+    gestureRef.current = null;
+    lastShortcutRef.current = null;
+    setIsDragging(false);
+    setSelectedRange(null);
   }, []);
 
-  const setSelectionBoxState = useCallback((box: SelectionBox | null) => {
-    selectionBoxRef.current = box;
-    setSelectionBox(box);
-  }, []);
+  useEffect(clearSelection, [
+    clearSelection, schedule._id, profileId, userTimezone, selectionTimezone,
+    weekStartDay, weekOffset, selectMode, allowMode, creatorMode, canInteract, isCreator, canLock,
+  ]);
 
   // The grid renders straight from the server's selections, so a rejected
   // change reverts on its own and only needs reporting.
@@ -661,473 +685,208 @@ export function WeeklyGrid({
     ]
   );
 
-  // Handle single cell click (toggle)
-  const handleSingleCellToggle = useCallback(
-    (dayIndex: number, timeIndex: number) => {
-      if (!canInteract) return;
-
-      if (!isCellInDateRange(dayIndex, timeIndex)) return;
-
-      // Creator: Allow/Disallow mode
-      if (isCreator && creatorMode === "limit") {
-        const { dayKey, timeSlot } = toScheduleKeys(dayIndex, timeIndex);
-        const currentSlots = schedule.disallowedSlots || [];
-        const cellIsDisallowed = isCellDisallowed(dayIndex, timeIndex);
-
-        if (allowMode === "auto") {
-          // Toggle
-          if (cellIsDisallowed) {
-            commitChange(
-              onCreatorSlotChange(
-                currentSlots.filter(
-                  (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
-                )
-              ),
-              SLOT_ERROR
-            );
-          } else {
-            commitChange(
-              onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]),
-              SLOT_ERROR
-            );
-          }
-        } else if (allowMode === "allow" && cellIsDisallowed) {
-          commitChange(
-            onCreatorSlotChange(
-              currentSlots.filter(
-                (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
-              )
-            ),
-            SLOT_ERROR
-          );
-        } else if (allowMode === "dont-allow" && !cellIsDisallowed) {
-          commitChange(
-            onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]),
-            SLOT_ERROR
-          );
-        }
-        return;
-      }
-
-      // Creator: Lock mode
-      if (canLock && creatorMode === "lock") {
-        const { dayKey, timeSlot } = toScheduleKeys(dayIndex, timeIndex);
-        const currentSlots = schedule.lockedSlots || [];
-        const cellIsLocked = isCellLocked(dayIndex, timeIndex);
-
-        // Toggle lock state
-        if (cellIsLocked) {
-          commitChange(
-            onCreatorSlotChange(
-              currentSlots.filter(
-                (s) => !(s.dayKey === dayKey && s.timeSlot === timeSlot)
-              )
-            ),
-            SLOT_ERROR
-          );
-        } else {
-          commitChange(
-            onCreatorSlotChange([...currentSlots, { dayKey, timeSlot }]),
-            SLOT_ERROR
-          );
-        }
-        return;
-      }
-
-      // Regular mode or creator nominate mode — standard selection behavior
-      const currentState = getCellState(dayIndex, timeIndex);
-      const hasCalendarBaseline = calendarSyncedCells.has(
-        getCellKey(dayIndex, timeIndex)
-      );
-      let newState: CellState;
-
-      if (selectMode === "auto") {
-        newState = getNextAutoState(currentState, hasCalendarBaseline);
-      } else {
-        newState = currentState === selectMode ? "blank" : selectMode;
-      }
-
-      const {
-        dayKey,
-        timeSlot,
-        isException,
-        exceptionDate,
-        timezone: storageTimezone,
-      } =
-        toStorageKeys(dayIndex, timeIndex);
-      const scheduleCell = toScheduleKeys(dayIndex, timeIndex);
-      commitChange(
-        onCellChange(
-          dayKey,
-          timeSlot,
-          newState,
-          isException,
-          exceptionDate,
-          storageTimezone,
-          scheduleCell.dayKey,
-          scheduleCell.timeSlot
-        ),
-        CELL_ERROR
-      );
-    },
-    [
-      canInteract,
-      commitChange,
-      isCreator,
-      canLock,
-      creatorMode,
-      selectMode,
-      allowMode,
-      getCellState,
-      getCellKey,
-      getNextAutoState,
-      calendarSyncedCells,
-      isCellInDateRange,
-      isCellDisallowed,
-      isCellLocked,
-      toStorageKeys,
-      toScheduleKeys,
-      onCellChange,
-      onCreatorSlotChange,
-      schedule.disallowedSlots,
-      schedule.lockedSlots,
-    ]
+  // Limits, locks, and availability all use the same range and commit path.
+  const getEditableCells = useCallback(
+    (range: CellRange): GridCell[] => getRangeCells(range).filter(({ dayIndex, timeIndex }) =>
+      isCellInDateRange(dayIndex, timeIndex) &&
+      (isLimitMode || (isCreator && creatorMode === "nominate") || !isCellDisallowed(dayIndex, timeIndex))
+    ),
+    [isCellInDateRange, isLimitMode, isCreator, creatorMode, isCellDisallowed]
   );
 
-  // Mouse handlers for drag selection
+  const applyCells = useCallback(
+    (cells: GridCell[], action: GridAction) => {
+      if (!canInteract || cells.length === 0 || action.kind === "select") return;
+
+      if (action.kind === "slots") {
+        const currentSlots = schedule[action.field] ?? [];
+        const slots = new Map(currentSlots.map((slot) => [`${slot.dayKey}|${slot.timeSlot}`, slot]));
+        for (const cell of cells) {
+          const slot = toScheduleKeys(cell.dayIndex, cell.timeIndex);
+          const key = `${slot.dayKey}|${slot.timeSlot}`;
+          if (action.add) slots.set(key, slot);
+          else slots.delete(key);
+        }
+        if (slots.size !== currentSlots.length) {
+          commitChange(onCreatorSlotChange([...slots.values()]), SLOT_ERROR);
+        }
+        return;
+      }
+
+      if (action.state === "cant-do" && schedule.disallowCantDo) return;
+      const changes = cells.map(({ dayIndex, timeIndex }) => {
+        const storage = toStorageKeys(dayIndex, timeIndex);
+        const scheduleCell = toScheduleKeys(dayIndex, timeIndex);
+        return {
+          ...storage,
+          state: action.state,
+          scheduleDayKey: scheduleCell.dayKey,
+          scheduleTimeSlot: scheduleCell.timeSlot,
+        };
+      });
+      if (changes.length === 1) {
+        const cell = changes[0];
+        commitChange(
+          onCellChange(
+            cell.dayKey, cell.timeSlot, cell.state, cell.isException, cell.exceptionDate,
+            cell.timezone, cell.scheduleDayKey, cell.scheduleTimeSlot
+          ),
+          CELL_ERROR
+        );
+      } else {
+        commitChange(onBatchChange(changes), CELL_ERROR);
+      }
+    },
+    [canInteract, schedule.disallowedSlots, schedule.lockedSlots, schedule.disallowCantDo,
+      toScheduleKeys, toStorageKeys, commitChange, onCreatorSlotChange, onCellChange, onBatchChange]
+  );
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, dayIndex: number, timeIndex: number) => {
-      if (e.button !== 0) return;
-      if (!canInteract) return;
-
+      if (e.button !== 0 || !canInteract) return;
       e.preventDefault();
+      gridRef.current?.focus({ preventScroll: true });
       setNominationHover(null);
-      dragStartRef.current = {
-        x: e.clientX,
-        y: e.clientY,
-        dayIndex,
-        timeIndex,
-      };
-      setIsDragging(true);
-      setDragActiveState(false);
+      lastShortcutRef.current = null;
 
-      // Determine drag action based on mode
-      if (isCreator && creatorMode === "limit") {
-        const cellIsDisallowed = isCellDisallowed(dayIndex, timeIndex);
-        if (allowMode === "auto") {
-          dragActionRef.current = cellIsDisallowed ? "allow" : "dont-allow";
-        } else {
-          dragActionRef.current = allowMode;
-        }
-      } else if (canLock && creatorMode === "lock") {
-        const cellIsLocked = isCellLocked(dayIndex, timeIndex);
-        dragActionRef.current = cellIsLocked ? "unlock" : "lock";
+      let action: GridAction;
+      if (isLimitMode) {
+        action = {
+          kind: "slots",
+          field: "disallowedSlots",
+          add: allowMode === "auto"
+            ? !isCellDisallowed(dayIndex, timeIndex)
+            : allowMode === "dont-allow",
+        };
+      } else if (isLockMode) {
+        action = { kind: "slots", field: "lockedSlots", add: !isCellLocked(dayIndex, timeIndex) };
+      } else if (selectMode === "select") {
+        action = { kind: "select" };
       } else {
-        // Regular / nominate mode
-        const currentState = getCellState(dayIndex, timeIndex);
-        if (selectMode === "auto") {
-          const hasCalendarBaseline = calendarSyncedCells.has(
-            getCellKey(dayIndex, timeIndex)
-          );
-          dragActionRef.current = hasCalendarBaseline
-            ? getNextAutoState(currentState, true)
-            : currentState === "blank"
-              ? "can-do"
-              : currentState;
-        } else {
-          dragActionRef.current = selectMode;
-        }
+        action = {
+          kind: "availability",
+          state: selectMode === "auto"
+            ? getNextAutoState(
+                getCellState(dayIndex, timeIndex),
+                calendarSyncedCells.has(getCellKey(dayIndex, timeIndex))
+              )
+            : selectMode,
+        };
       }
-
-      setSelectionBoxState({
-        startX: e.clientX,
-        startY: e.clientY,
-        currentX: e.clientX,
-        currentY: e.clientY,
-      });
+      const cell = { dayIndex, timeIndex };
+      const range = { start: cell, end: cell };
+      gestureRef.current = { x: e.clientX, y: e.clientY, range, action, moved: false };
+      setSelectedRange(range);
+      setIsDragging(true);
     },
-    [
-      canInteract,
-      getCellState,
-      getCellKey,
-      getNextAutoState,
-      calendarSyncedCells,
-      selectMode,
-      isCreator,
-      canLock,
-      creatorMode,
-      allowMode,
-      isCellDisallowed,
-      isCellLocked,
-      setDragActiveState,
-      setSelectionBoxState,
-    ]
+    [canInteract, isLimitMode, isLockMode, allowMode, selectMode, isCellDisallowed,
+      isCellLocked, getNextAutoState, getCellState, calendarSyncedCells, getCellKey]
   );
 
-  // Get cells that overlap with the selection box
-  const getSelectedCells = useCallback((): {
-    dayIndex: number;
-    timeIndex: number;
-  }[] => {
-    const box = selectionBoxRef.current;
-    if (!box || !dragActiveRef.current) return [];
+  // Snap to whole cells, including the starting cell and horizontal/vertical
+  // drags. The nearest cell also clamps a drag that leaves the grid's edges.
+  const updateGesture = useCallback((x: number, y: number) => {
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    if (!gesture.moved && Math.hypot(x - gesture.x, y - gesture.y) <= DEAD_ZONE_PX) return;
+    gesture.moved = true;
 
-    const rect = {
-      left: Math.min(box.startX, box.currentX),
-      top: Math.min(box.startY, box.currentY),
-      right: Math.max(box.startX, box.currentX),
-      bottom: Math.max(box.startY, box.currentY),
-    };
-
-    const cells: { dayIndex: number; timeIndex: number }[] = [];
-
-    cellRefs.current.forEach((el, key) => {
-      const cellRect = el.getBoundingClientRect();
-      const overlapX =
-        Math.min(rect.right, cellRect.right) -
-        Math.max(rect.left, cellRect.left);
-      const overlapY =
-        Math.min(rect.bottom, cellRect.bottom) -
-        Math.max(rect.top, cellRect.top);
-
-      if (overlapX > DEAD_ZONE_PX && overlapY > DEAD_ZONE_PX) {
-        const [d, t] = key.split(",").map(Number);
-        cells.push({ dayIndex: d, timeIndex: t });
+    let nearest = gesture.range.end;
+    let nearestDistance = Infinity;
+    for (const [key, element] of cellRefs.current) {
+      const rect = element.getBoundingClientRect();
+      const dx = Math.max(rect.left - x, 0, x - rect.right);
+      const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+      const distance = dx * dx + dy * dy;
+      if (distance < nearestDistance) {
+        const [dayIndex, timeIndex] = key.split(",").map(Number);
+        nearest = { dayIndex, timeIndex };
+        nearestDistance = distance;
+        if (distance === 0) break;
       }
-    });
-
-    return cells;
+    }
+    if (nearest.dayIndex !== gesture.range.end.dayIndex || nearest.timeIndex !== gesture.range.end.timeIndex) {
+      gesture.range = { start: gesture.range.start, end: nearest };
+      setSelectedRange(gesture.range);
+    }
   }, []);
 
   useEffect(() => {
     if (!isDragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragStartRef.current) return;
-
-      const dx = e.clientX - dragStartRef.current.x;
-      const dy = e.clientY - dragStartRef.current.y;
-      if (Math.sqrt(dx * dx + dy * dy) > DEAD_ZONE_PX) {
-        setDragActiveState(true);
-      }
-
-      const box = selectionBoxRef.current;
-      if (box) {
-        setSelectionBoxState({
-          ...box,
-          currentX: e.clientX,
-          currentY: e.clientY,
-        });
-      }
-    };
-
-    const handleMouseUp = (e: MouseEvent) => {
-      if (e.button === 2) {
-        // Right click cancels
-        setIsDragging(false);
-        setSelectionBoxState(null);
-        setDragActiveState(false);
-        dragStartRef.current = null;
+    const handleMouseMove = (event: MouseEvent) => updateGesture(event.clientX, event.clientY);
+    const handleMouseUp = (event: MouseEvent) => {
+      if (event.button === 2) {
+        clearSelection();
         return;
       }
-
-      if (!dragActiveRef.current && dragStartRef.current) {
-        // Single click
-        handleSingleCellToggle(
-          dragStartRef.current.dayIndex,
-          dragStartRef.current.timeIndex
-        );
-      } else if (dragActiveRef.current) {
-        // Drag complete — collect selected cells, filtering in the schedule's
-        // timezone so boundary days work correctly for remote viewers.
-        const selectedCells = getSelectedCells().filter((cell) =>
-          isCellInDateRange(cell.dayIndex, cell.timeIndex)
-        );
-        if (selectedCells.length > 0) {
-          if (isCreator && creatorMode === "limit") {
-            // Allow/Disallow mode: update disallowedSlots
-            const action = dragActionRef.current; // "allow" or "dont-allow"
-            const currentSlots = [...(schedule.disallowedSlots || [])];
-
-            for (const cell of selectedCells) {
-              const { dayKey, timeSlot } = toScheduleKeys(
-                cell.dayIndex,
-                cell.timeIndex
-              );
-              const isInSet = isCellDisallowed(
-                cell.dayIndex,
-                cell.timeIndex
-              );
-
-              if (action === "dont-allow" && !isInSet) {
-                currentSlots.push({ dayKey, timeSlot });
-              } else if (action === "allow" && isInSet) {
-                const idx = currentSlots.findIndex(
-                  (s) => s.dayKey === dayKey && s.timeSlot === timeSlot
-                );
-                if (idx !== -1) currentSlots.splice(idx, 1);
-              }
-            }
-            commitChange(onCreatorSlotChange(currentSlots), SLOT_ERROR);
-          } else if (canLock && creatorMode === "lock") {
-            // Lock mode: filter out disallowed cells first
-            const allowedCells = selectedCells.filter(
-              (cell) => !isCellDisallowed(cell.dayIndex, cell.timeIndex)
-            );
-            const action = dragActionRef.current; // "lock" or "unlock"
-            const currentSlots = [...(schedule.lockedSlots || [])];
-
-            for (const cell of allowedCells) {
-              const { dayKey, timeSlot } = toScheduleKeys(
-                cell.dayIndex,
-                cell.timeIndex
-              );
-              const isInSet = isCellLocked(cell.dayIndex, cell.timeIndex);
-
-              if (action === "lock" && !isInSet) {
-                currentSlots.push({ dayKey, timeSlot });
-              } else if (action === "unlock" && isInSet) {
-                const idx = currentSlots.findIndex(
-                  (s) => s.dayKey === dayKey && s.timeSlot === timeSlot
-                );
-                if (idx !== -1) currentSlots.splice(idx, 1);
-              }
-            }
-            commitChange(onCreatorSlotChange(currentSlots), SLOT_ERROR);
-          } else {
-            // Regular / nominate mode: filter out disallowed cells (creators in nominate mode can override)
-            const allowedCells = (isCreator && creatorMode === "nominate")
-              ? selectedCells
-              : selectedCells.filter(
-                  (cell) => !isCellDisallowed(cell.dayIndex, cell.timeIndex)
-                );
-            const state = dragActionRef.current as CellState;
-            const batchSelections = allowedCells.map((cell) => {
-              const {
-                dayKey,
-                timeSlot,
-                isException,
-                exceptionDate,
-                timezone,
-              } =
-                toStorageKeys(cell.dayIndex, cell.timeIndex);
-              const scheduleCell = toScheduleKeys(
-                cell.dayIndex,
-                cell.timeIndex
-              );
-              return {
-                dayKey,
-                timeSlot,
-                state,
-                isException,
-                exceptionDate,
-                timezone,
-                scheduleDayKey: scheduleCell.dayKey,
-                scheduleTimeSlot: scheduleCell.timeSlot,
-              };
-            });
-            if (batchSelections.length > 0) {
-              commitChange(onBatchChange(batchSelections), CELL_ERROR);
-            }
-          }
-        }
+      if (event.button !== 0) return;
+      updateGesture(event.clientX, event.clientY);
+      const gesture = gestureRef.current;
+      if (!gesture) return;
+      if (gesture.action.kind !== "select") {
+        applyCells(getEditableCells(gesture.range), gesture.action);
+        setSelectedRange(null);
       }
-
+      gestureRef.current = null;
       setIsDragging(false);
-      setSelectionBoxState(null);
-      setDragActiveState(false);
-      dragStartRef.current = null;
     };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsDragging(false);
-        setSelectionBoxState(null);
-        setDragActiveState(false);
-        dragStartRef.current = null;
-      }
+    const handleContextMenu = (event: Event) => {
+      event.preventDefault();
+      clearSelection();
     };
-
-    const handleContextMenu = (e: Event) => {
-      e.preventDefault();
-      setIsDragging(false);
-      setSelectionBoxState(null);
-      setDragActiveState(false);
-      dragStartRef.current = null;
-    };
-
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-    document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("contextmenu", handleContextMenu);
-
+    window.addEventListener("blur", clearSelection);
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
-      document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("blur", clearSelection);
     };
-  }, [
-    isDragging,
-    commitChange,
-    getSelectedCells,
-    handleSingleCellToggle,
-    setDragActiveState,
-    setSelectionBoxState,
-    toStorageKeys,
-    toScheduleKeys,
-    onBatchChange,
-    isCreator,
-    canLock,
-    creatorMode,
-    onCreatorSlotChange,
-    isCellDisallowed,
-    isCellLocked,
-    isCellInDateRange,
-    schedule.disallowedSlots,
-    schedule.lockedSlots,
-  ]);
+  }, [isDragging, updateGesture, applyCells, getEditableCells, clearSelection]);
 
-  // Check if a cell is within the active selection box
-  const isCellInDragSelection = useCallback(
-    (dayIndex: number, timeIndex: number): boolean => {
-      if (!selectionBox || !dragActive) return false;
+  const selectedCells = useMemo(() => selectedRange ? getEditableCells(selectedRange) : [],
+    [selectedRange, getEditableCells]);
+  const selectedCellKeys = useMemo(() => new Set(selectedCells.map(({ dayIndex, timeIndex }) => `${dayIndex},${timeIndex}`)),
+    [selectedCells]);
+  const applySelectedState = useCallback((state: CellState) => {
+    lastShortcutRef.current = null;
+    applyCells(selectedCells, { kind: "availability", state });
+  }, [applyCells, selectedCells]);
 
-      const el = cellRefs.current.get(`${dayIndex},${timeIndex}`);
-      if (!el) return false;
-
-      const rect = {
-        left: Math.min(selectionBox.startX, selectionBox.currentX),
-        top: Math.min(selectionBox.startY, selectionBox.currentY),
-        right: Math.max(selectionBox.startX, selectionBox.currentX),
-        bottom: Math.max(selectionBox.startY, selectionBox.currentY),
-      };
-
-      const cellRect = el.getBoundingClientRect();
-      const overlapX =
-        Math.min(rect.right, cellRect.right) -
-        Math.max(rect.left, cellRect.left);
-      const overlapY =
-        Math.min(rect.bottom, cellRect.bottom) -
-        Math.max(rect.top, cellRect.top);
-
-      return overlapX > DEAD_ZONE_PX && overlapY > DEAD_ZONE_PX;
-    },
-    [selectionBox, dragActive]
-  );
-
-  // Get drag selection styling based on creator mode
-  const getDragSelectionClass = useCallback(
-    (dayIndex: number, timeIndex: number): string => {
-      if (!isCellInDragSelection(dayIndex, timeIndex)) return "";
-
-      if (isCreator && creatorMode === "limit") return styles.dragSelectLimit;
-      if (canLock && creatorMode === "lock") return styles.dragSelectLock;
-      // nominate mode or non-creator
-      return styles.dragSelectNominate;
-    },
-    [isCellInDragSelection, isCreator, canLock, creatorMode]
-  );
+  useEffect(() => {
+    if (!selectedRange) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"]')) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        clearSelection();
+        return;
+      }
+      if (!isSelectMode || isDragging || !canInteract || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+      const state = availabilityActions.find(({ key }) => key.toLowerCase() === event.key.toLowerCase())?.state;
+      if (!state || (state === "cant-do" && schedule.disallowCantDo)) return;
+      event.preventDefault();
+      if (lastShortcutRef.current === state) {
+        clearSelection();
+      } else {
+        applyCells(selectedCells, { kind: "availability", state });
+        lastShortcutRef.current = state;
+      }
+    };
+    const handleOutsideMouseDown = (event: MouseEvent) => {
+      if (event.target instanceof Element && !gridRef.current?.contains(event.target) &&
+        !event.target.closest("[data-availability-selection-toolbar]")) clearSelection();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleOutsideMouseDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleOutsideMouseDown);
+    };
+  }, [selectedRange, selectedCells, isSelectMode, isDragging, canInteract, schedule.disallowCantDo, clearSelection, applyCells]);
 
   // Profile map for quick lookup
   const profileMap = useMemo(() => {
@@ -1167,7 +926,7 @@ export function WeeklyGrid({
     dayIndex: number,
     timeIndex: number
   ) {
-    if (isDragging || event.buttons !== 0 || event.pointerType === "touch") return;
+    if (isDragging || (isSelectMode && selectedRange) || event.buttons !== 0 || event.pointerType === "touch") return;
 
     cursorRef.current = { x: event.clientX, y: event.clientY };
 
@@ -1194,28 +953,6 @@ export function WeeklyGrid({
   // Date labels for columns
   const columnDates = weekDates.map((d) => d.toFormat("MMM d"));
 
-  // Selection box rect for rendering
-  const selectionRect = useMemo(() => {
-    if (!selectionBox || !dragActive) return null;
-    return {
-      left: Math.min(selectionBox.startX, selectionBox.currentX),
-      top: Math.min(selectionBox.startY, selectionBox.currentY),
-      width: Math.abs(selectionBox.currentX - selectionBox.startX),
-      height: Math.abs(selectionBox.currentY - selectionBox.startY),
-    };
-  }, [selectionBox, dragActive]);
-
-  // Determine the CSS class for the selection box overlay
-  const selectionBoxClass = useMemo(() => {
-    if (isCreator && creatorMode === "limit") {
-      return cx(styles.selectionBox, styles.selectionBoxLimit);
-    }
-    if (canLock && creatorMode === "lock") {
-      return cx(styles.selectionBox, styles.selectionBoxLock);
-    }
-    return styles.selectionBox;
-  }, [isCreator, canLock, creatorMode]);
-
   return (
     <div className={styles.gridRoot}>
       {/* DST Notice */}
@@ -1228,6 +965,7 @@ export function WeeklyGrid({
       {/* Grid Container */}
       <div
         ref={gridRef}
+        tabIndex={-1}
         className={styles.gridContainer}
         onScroll={() => setNominationHover(null)}
       >
@@ -1291,10 +1029,14 @@ export function WeeklyGrid({
                   const cellLocked = isCellLocked(dayIndex, timeIndex);
                   const cellCalendarSynced = calendarSyncedCells.has(cellKey);
                   const isToday = dayIndex === currentDayIndex;
-                  const dragSelectionClass = getDragSelectionClass(
-                    dayIndex,
-                    timeIndex
-                  );
+                  const cellSelected = selectedCellKeys.has(`${dayIndex},${timeIndex}`);
+                  const dragSelectionClass = cellSelected
+                    ? isLimitMode
+                      ? styles.dragSelectLimit
+                      : isLockMode
+                        ? styles.dragSelectLock
+                        : styles.dragSelectNominate
+                    : "";
 
                   // Current time line
                   const showTimeLine =
@@ -1347,6 +1089,7 @@ export function WeeklyGrid({
                         }
                       }}
                       className={cellClasses}
+                      data-selected={cellSelected || undefined}
                       data-inspected={isNominationAnchor && inspectedSlot ? true : undefined}
                       title={
                         cellCalendarSynced
@@ -1443,16 +1186,15 @@ export function WeeklyGrid({
         document.body
       )}
 
-      {/* Selection box overlay */}
-      {selectionRect && (
-        <div
-          className={selectionBoxClass}
-          style={{
-            left: selectionRect.left,
-            top: selectionRect.top,
-            width: selectionRect.width,
-            height: selectionRect.height,
-          }}
+      {isSelectMode && !isDragging && selectedCells.length > 0 && selectedRange && (
+        <AvailabilitySelectionToolbar
+          startCell={cellRefs.current.get(`${Math.min(selectedRange.start.dayIndex, selectedRange.end.dayIndex)},${Math.min(selectedRange.start.timeIndex, selectedRange.end.timeIndex)}`)!}
+          endCell={cellRefs.current.get(`${Math.max(selectedRange.start.dayIndex, selectedRange.end.dayIndex)},${Math.max(selectedRange.start.timeIndex, selectedRange.end.timeIndex)}`)!}
+          container={gridRef.current!}
+          count={selectedCells.length}
+          disallowCantDo={schedule.disallowCantDo}
+          onApply={applySelectedState}
+          onDismiss={clearSelection}
         />
       )}
     </div>

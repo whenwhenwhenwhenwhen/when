@@ -10,6 +10,11 @@ import { defineConfig } from "vite";
 import path from "path";
 
 export default defineConfig({
+  // Keep mock data and browser storage separate from the normal dev app.
+  server: {
+    port: 5174,
+    strictPort: true,
+  },
   resolve: {
     alias: [
       // Replace Convex React hooks/provider with mock implementations

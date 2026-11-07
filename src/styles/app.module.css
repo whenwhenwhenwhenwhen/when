@@ -1884,24 +1884,6 @@ tr:has(> .gridCell:hover) > .timeCell {
   box-shadow: inset 0 0 0 2px var(--color-locked);
 }
 
-.selectionBox {
-  position: fixed;
-  z-index: 50;
-  border: 2px solid var(--color-accent);
-  background: rgba(37, 99, 235, 0.1);
-  pointer-events: none;
-}
-
-.selectionBoxLimit {
-  border-color: var(--color-limit);
-  background: rgba(34, 197, 94, 0.1);
-}
-
-.selectionBoxLock {
-  border-color: var(--color-locked);
-  background: rgba(139, 92, 246, 0.1);
-}
-
 .dragSelectLimit {
   box-shadow: inset 0 0 0 2px var(--color-limit);
 }
@@ -1911,7 +1893,90 @@ tr:has(> .gridCell:hover) > .timeCell {
 }
 
 .dragSelectNominate {
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+}
+
+.availabilitySelectionToolbar {
+  position: fixed;
+  z-index: 50;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.75rem;
+}
+
+.availabilitySelectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.availabilitySelectionHeader button {
+  display: flex;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.availabilitySelectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.availabilitySelectionActions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.availabilitySelectionActions button:hover,
+.availabilitySelectionHeader button:hover {
   background: var(--color-accent-soft);
+}
+
+.availabilitySelectionToolbar button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.availabilitySelectionActions kbd {
+  margin-left: var(--space-1);
+  padding: 1px 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font: inherit;
+}
+
+.availabilitySelectionActions [data-state="can-do"] { --selection-color: var(--color-can-do); }
+.availabilitySelectionActions [data-state="cant-do"] { --selection-color: var(--color-cant-do); }
+.availabilitySelectionActions [data-state="maybe"] { --selection-color: var(--color-maybe); }
+.availabilitySelectionActions [data-state="blank"] { --selection-color: var(--color-text-muted); }
+
+.availabilitySelectionDot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--selection-color);
 }
 
 .currentTimeLine {
