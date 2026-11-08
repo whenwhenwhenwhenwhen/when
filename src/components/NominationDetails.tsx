@@ -19,6 +19,7 @@ interface Nomination {
 interface Props {
   nominations: Nomination[];
   slotLabel: string;
+  isLocked: boolean;
   highlightedId?: string;
   cursorRef: RefObject<{ x: number; y: number }>;
   distance: number;
@@ -28,6 +29,7 @@ interface Props {
 export function NominationDetails({
   nominations,
   slotLabel,
+  isLocked,
   highlightedId,
   cursorRef,
   distance,
@@ -111,7 +113,10 @@ export function NominationDetails({
       onPointerLeave={onPointerLeave}
     >
       <header className={styles.nominationDetailsHeader}>
-        <strong>{slotLabel}</strong>
+        <strong>
+          {slotLabel}
+          {isLocked && <span className={styles.nominationLocked}>Locked in</span>}
+        </strong>
         <strong className={styles.nominationTotal} aria-label={`${summary.available} of ${summary.total} participants available${summary.maybe > 0 ? `, including ${summary.maybe} maybe` : ""}`}>
           <span className={styles.nominationAvailable} data-coverage={summary.color}>{summary.available}</span>
           {summary.maybe > 0 && <span className={styles.nominationMaybe}>({summary.maybe})</span>}

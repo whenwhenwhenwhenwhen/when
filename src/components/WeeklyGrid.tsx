@@ -850,6 +850,13 @@ export function WeeklyGrid({
     [selectedRange, getEditableCells]);
   const selectedCellKeys = useMemo(() => new Set(selectedCells.map(({ dayIndex, timeIndex }) => `${dayIndex},${timeIndex}`)),
     [selectedCells]);
+  // Include the lock-mode preview so its outline joins existing locked slots.
+  // Only vertical neighbors belong to the same group, within the visible day.
+  const isCellLockOutlined = (dayIndex: number, timeIndex: number): boolean =>
+    timeIndex >= 0 && timeIndex < TIME_SLOTS.length && (
+      isCellLocked(dayIndex, timeIndex) ||
+      (isLockMode && selectedCellKeys.has(`${dayIndex},${timeIndex}`))
+    );
   const applySelectedState = useCallback((state: CellState) => {
     lastShortcutRef.current = null;
     applyCells(selectedCells, { kind: "availability", state });
@@ -915,7 +922,8 @@ export function WeeklyGrid({
       a.profile.displayName.localeCompare(b.profile.displayName)
     );
   }, [nominationHoverEnabled, nominationHover, getCellParticipants, participantProfiles]);
-  const inspectedSlot = nominationHover && hoveredNominations.length > 0
+  const inspectedSlotLocked = !!nominationHover && isCellLocked(nominationHover.dayIndex, nominationHover.timeIndex);
+  const inspectedSlot = nominationHover && (hoveredNominations.length > 0 || inspectedSlotLocked)
     ? `${weekDates[nominationHover.dayIndex].toFormat("ccc, MMM d")} · ${formatTimeSlot(TIME_SLOTS[nominationHover.timeIndex])}`
     : undefined;
 
@@ -1021,21 +1029,20 @@ export function WeeklyGrid({
                     timeIndex
                   );
                   const hasNominations = cellParticipants.length > 0;
-                  const canShowNominations = nominationHoverEnabled && inRange && participantProfiles.length > 0;
+                  const canShowNominations = nominationHoverEnabled && inRange &&
+                    (participantProfiles.length > 0 || isCellLocked(dayIndex, timeIndex));
                   const isNominationAnchor =
                     nominationHover?.dayIndex === dayIndex &&
                     nominationHover.timeIndex === timeIndex;
                   const cellDisallowed = isCellDisallowed(dayIndex, timeIndex);
-                  const cellLocked = isCellLocked(dayIndex, timeIndex);
+                  const cellLockOutlined = isCellLockOutlined(dayIndex, timeIndex);
                   const cellCalendarSynced = calendarSyncedCells.has(cellKey);
                   const isToday = dayIndex === currentDayIndex;
                   const cellSelected = selectedCellKeys.has(`${dayIndex},${timeIndex}`);
-                  const dragSelectionClass = cellSelected
+                  const dragSelectionClass = cellSelected && !isLockMode
                     ? isLimitMode
                       ? styles.dragSelectLimit
-                      : isLockMode
-                        ? styles.dragSelectLock
-                        : styles.dragSelectNominate
+                      : styles.dragSelectNominate
                     : "";
 
                   // Current time line
@@ -1067,7 +1074,9 @@ export function WeeklyGrid({
                     cellDisallowed &&
                       (inLimitMode || inCreatorNominateMode) &&
                       styles.limitInteractive,
-                    cellLocked && styles.locked,
+                    cellLockOutlined && styles.locked,
+                    cellLockOutlined && !isCellLockOutlined(dayIndex, timeIndex - 1) && styles.lockedStart,
+                    cellLockOutlined && !isCellLockOutlined(dayIndex, timeIndex + 1) && styles.lockedEnd,
                     isToday && styles.currentDayCol,
                     isToday && timeIndex === TIME_SLOTS.length - 1
                       ? styles.currentDayColLast
@@ -1178,6 +1187,7 @@ export function WeeklyGrid({
         <NominationDetails
           nominations={hoveredNominations}
           slotLabel={inspectedSlot}
+          isLocked={inspectedSlotLocked}
           highlightedId={nominationHover.profileId}
           cursorRef={cursorRef}
           distance={nominationHoverDistancePx}
