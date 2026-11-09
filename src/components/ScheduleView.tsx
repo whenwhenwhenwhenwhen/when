@@ -22,6 +22,7 @@ import { ScheduleSummaryModal } from "./ScheduleSummaryModal";
 import { useAnonymousUser } from "../hooks/useAnonymousUser";
 import { useTimezone } from "../hooks/useTimezone";
 import { useToast } from "../hooks/useToast";
+import { getLockedScheduleDays } from "../lib/scheduleSummary";
 import {
   convertCellToTimezone,
   detectTimezone,
@@ -43,6 +44,14 @@ function readViewedWeeks(storageKey: string): string[] {
   } catch {
     return [];
   }
+}
+
+function formatLockedWindow({ start, end }: { start: DateTime; end: DateTime }) {
+  const format = start.offset !== end.offset ||
+    start.getPossibleOffsets().length > 1 || end.getPossibleOffsets().length > 1
+    ? DateTime.TIME_WITH_SHORT_OFFSET
+    : DateTime.TIME_SIMPLE;
+  return `${start.toLocaleString(format)}–${end.toLocaleString(format)}`;
 }
 
 export function ScheduleView() {
@@ -850,6 +859,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
         },
       ];
   const applyHelp = applyOptions.map(({ label, description }) => `${label}: ${description}`).join("\n\n");
+  const lockedDays = getLockedScheduleDays(schedule, referenceDate, weekStartDay);
 
   return (
     <div className={cx(styles.appShell, styles.scheduleShell)}>
@@ -857,7 +867,10 @@ function SchedulePage({ id }: { id: string | undefined }) {
       <main className={styles.mainWide}>
         {/* Schedule Header */}
         <div className={styles.scheduleHeader}>
-          <div className={styles.scheduleHeaderRow}>
+          <div className={cx(
+            styles.scheduleHeaderRow,
+            lockedDays.length > 0 && styles.scheduleHeaderWithLocks,
+          )}>
             <div>
               <div className={styles.scheduleTitleRow}>
                 <h1 className={styles.scheduleTitle}>
@@ -885,6 +898,22 @@ function SchedulePage({ id }: { id: string | undefined }) {
                 </p>
               )}
             </div>
+            {lockedDays.length > 0 && (
+              <section className={styles.lockedTimes} aria-label="Locked-in times">
+                <ul className={styles.lockedTimesList}>
+                  {lockedDays.map(({ date, windows }) => (
+                    <li key={date.toISODate()}>
+                      <strong>
+                        {schedule.type === "one-off"
+                          ? date.toLocaleString(DateTime.DATE_MED_WITH_WEEKDAY)
+                          : date.weekdayLong}
+                      </strong>
+                      {" · "}{windows.map(formatLockedWindow).join(", ")}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <div className={styles.creatorActions}>
               <span className={styles.faintText}>
                 My timezone: {timezone}

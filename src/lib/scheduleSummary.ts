@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import {
   convertCellToTimezone,
   convertOneOffSlot,
+  convertRecurringSlot,
   getCellKey,
   getWeekDates,
   type ScheduleType,
@@ -31,9 +32,12 @@ type Schedule = {
   profiles: Participant[];
 };
 
-type SummaryWindow = {
+type TimeWindow = {
   start: DateTime;
   end: DateTime;
+};
+
+type SummaryWindow = TimeWindow & {
   available: SummaryParticipant[];
   unavailable: SummaryParticipant[];
 };
@@ -45,6 +49,62 @@ export type SummaryParticipant = {
 
 type Vote = { state: Selection["state"]; isException: boolean };
 type VotedSlot = { start: DateTime; votes: Map<string, Vote> };
+
+type LockedSchedule = Pick<Schedule, "type" | "creatorTimezone"> & {
+  lockedSlots?: TimezoneCell[];
+};
+
+export function getLockedScheduleDays(
+  { type, creatorTimezone, lockedSlots }: LockedSchedule,
+  referenceDate: DateTime,
+  weekStartDay: number,
+) {
+  const timezone = referenceDate.zoneName;
+  if (!timezone || !lockedSlots?.length) return [];
+
+  const weekStart = getWeekDates(referenceDate, weekStartDay)[0].startOf("day");
+  const weekEnd = weekStart.plus({ weeks: 1 });
+  const wrapIntoWeek = (date: DateTime) => {
+    // The grid wraps projected weekdays at the edges of the viewed week.
+    if (type === "one-off") return date;
+    if (date < weekStart) return date.plus({ weeks: 1 });
+    if (date >= weekEnd) return date.minus({ weeks: 1 });
+    return date;
+  };
+
+  const slots: TimeWindow[] = [];
+  for (const { dayKey, timeSlot } of lockedSlots) {
+    const { dateTime } = type === "one-off"
+      ? convertOneOffSlot(dayKey, timeSlot, creatorTimezone, timezone)
+      : convertRecurringSlot(Number(dayKey), timeSlot, creatorTimezone, timezone, referenceDate, weekStartDay);
+    if (!dateTime.isValid) continue;
+
+    const start = wrapIntoWeek(dateTime);
+    const end = start.plus({ minutes: 30 });
+    const midnight = start.plus({ days: 1 }).startOf("day");
+    slots.push({ start, end: DateTime.min(end, midnight) });
+    if (end > midnight) {
+      const nextDayStart = wrapIntoWeek(midnight);
+      slots.push({ start: nextDayStart, end: nextDayStart.plus(end.diff(midnight)) });
+    }
+  }
+
+  const days: { date: DateTime; windows: TimeWindow[] }[] = [];
+  for (const slot of slots.sort((a, b) => a.start.toMillis() - b.start.toMillis())) {
+    let day = days.at(-1);
+    if (!day || !day.date.hasSame(slot.start, "day")) {
+      day = { date: slot.start.startOf("day"), windows: [] };
+      days.push(day);
+    }
+    const previous = day.windows.at(-1);
+    if (previous && slot.start <= previous.end) {
+      previous.end = DateTime.max(previous.end, slot.end);
+    } else {
+      day.windows.push(slot);
+    }
+  }
+  return days;
+}
 
 export function getTopScheduleWindows(
   schedule: Schedule,

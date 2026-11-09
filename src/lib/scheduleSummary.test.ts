@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
-import { getTopScheduleWindows } from "./scheduleSummary";
+import { getLockedScheduleDays, getTopScheduleWindows } from "./scheduleSummary";
 
 type Schedule = Parameters<typeof getTopScheduleWindows>[0];
 type Selection = Schedule["selections"][number];
@@ -14,6 +14,50 @@ const profiles = [
 function vote(profileId: string, dayKey: string, timeSlot: string, state: Selection["state"] = "can-do"): Selection {
   return { profileId, dayKey, timeSlot, state, timezone: "UTC" };
 }
+
+describe("getLockedScheduleDays", () => {
+  it("merges adjacent locks by local date while keeping gaps and dates beyond the viewed week", () => {
+    const days = getLockedScheduleDays({
+      type: "one-off",
+      creatorTimezone: "UTC",
+      lockedSlots: [
+        { dayKey: "2026-08-04", timeSlot: "16:00" },
+        { dayKey: "2026-07-27", timeSlot: "13:30" },
+        { dayKey: "2026-07-27", timeSlot: "14:30" },
+        { dayKey: "2026-07-27", timeSlot: "13:00" },
+        { dayKey: "2026-07-27", timeSlot: "14:00" },
+        { dayKey: "2026-07-27", timeSlot: "16:30" },
+      ],
+    }, DateTime.fromISO("2026-07-27", { zone: "Australia/Melbourne" }), 1);
+
+    expect(days.map(({ date, windows }) => [date.toISODate(), windows.map(({ start, end }) => [
+      start.toFormat("HH:mm"), end.toFormat("HH:mm"),
+    ])])).toEqual([
+      ["2026-07-27", [["23:00", "00:00"]]],
+      ["2026-07-28", [["00:00", "01:00"], ["02:30", "03:00"]]],
+      ["2026-08-05", [["02:00", "02:30"]]],
+    ]);
+  });
+
+  it("combines recurring locks projected onto the same weekday across the week boundary", () => {
+    const days = getLockedScheduleDays({
+      type: "recurring",
+      creatorTimezone: "Australia/Melbourne",
+      lockedSlots: [
+        { dayKey: "0", timeSlot: "23:30" },
+        { dayKey: "1", timeSlot: "00:00" },
+        { dayKey: "1", timeSlot: "10:00" },
+      ],
+    }, DateTime.fromISO("2026-07-27", { zone: "UTC" }), 1);
+
+    expect(days.map(({ date, windows }) => [date.toISODate(), windows.map(({ start, end }) => [
+      start.toFormat("HH:mm"), end.toFormat("HH:mm"),
+    ])])).toEqual([
+      ["2026-07-27", [["00:00", "00:30"]]],
+      ["2026-08-02", [["13:30", "14:30"]]],
+    ]);
+  });
+});
 
 describe("getTopScheduleWindows", () => {
   it("compares the full one-off date range and merges only adjacent slots with the same voters", () => {
