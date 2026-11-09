@@ -1096,7 +1096,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
                     : undefined,
                 )}
               >
-                Allow/Disallow Time
+                Allow/Disallow
               </button>
               <button
                 onClick={() => setCreatorMode("nominate")}
@@ -1107,7 +1107,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
                     : undefined,
                 )}
               >
-                Nominate Time
+                Nominate
               </button>
               <button
                 onClick={() => setCreatorMode("lock")}
@@ -1118,7 +1118,7 @@ function SchedulePage({ id }: { id: string | undefined }) {
                     : undefined,
                 )}
               >
-                Lock In Time
+                Lock In
               </button>
             </div>
           )}
