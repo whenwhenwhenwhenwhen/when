@@ -177,10 +177,10 @@ importers:
     dependencies:
       '@clammet/convex-googly-auth':
         specifier: 1.0.3
-        version: 1.0.3(convex@1.49.0(react@19.3.1))(react@19.3.1)
+        version: 1.0.3(convex@1.50.0(react@19.3.1))(react@19.3.1)
       convex:
-        specifier: 1.49.0
-        version: 1.49.0(react@19.3.1)
+        specifier: 1.50.0
+        version: 1.50.0(react@19.3.1)
       lucide-react:
         specifier: 1.72.0
         version: 1.72.0(@types/react@19.3.0)(react@19.3.1)
@@ -220,7 +220,7 @@ importers:
         version: 10.0.7
       convex-test:
         specifier: 0.0.71
-        version: 0.0.71(convex@1.49.0(react@19.3.1))
+        version: 0.0.71(convex@1.50.0(react@19.3.1))
       jsdom:
         specifier: 31.0.0
         version: 31.0.0
@@ -772,8 +772,8 @@ packages:
     peerDependencies:
       convex: ^1.43.0
 
-  convex@1.49.0:
-    resolution: {integrity: sha512-mkr9oXF8/arkCI1kvYyGytWd62oVXNABh4uwLeI4UQVN6Zuudm4DlmSzNUJKF63djk6f/uUXC+6ffuVSkPLvzA==}
+  convex@1.50.0:
+    resolution: {integrity: sha512-WzzCad5hyzU4zzW0ChyUGB3Mil4LgRYMYii9cyQtC24WQnfaRgkZB0IKyhIIgRm1a2IXiGJoZnVYYSfttiap3Q==}
     engines: {node: '>=22.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
@@ -1296,9 +1296,9 @@ snapshots:
 
   '@babel/runtime@7.29.13': {}
 
-  '@clammet/convex-googly-auth@1.0.3(convex@1.49.0(react@19.3.1))(react@19.3.1)':
+  '@clammet/convex-googly-auth@1.0.3(convex@1.50.0(react@19.3.1))(react@19.3.1)':
     dependencies:
-      convex: 1.49.0(react@19.3.1)
+      convex: 1.50.0(react@19.3.1)
       react: 19.3.1
 
   '@edge-runtime/primitives@6.0.0': {}
@@ -1605,11 +1605,11 @@ snapshots:
       tree-kill: 1.2.2
       yargs: 18.0.0
 
-  convex-test@0.0.71(convex@1.49.0(react@19.3.1)):
+  convex-test@0.0.71(convex@1.50.0(react@19.3.1)):
     dependencies:
-      convex: 1.49.0(react@19.3.1)
+      convex: 1.50.0(react@19.3.1)
 
-  convex@1.49.0(react@19.3.1):
+  convex@1.50.0(react@19.3.1):
     dependencies:
       esbuild: 0.27.0
       prettier: 3.9.10
