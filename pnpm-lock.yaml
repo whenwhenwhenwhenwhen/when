@@ -229,8 +229,8 @@ importers:
         specifier: 10.0.7
         version: 10.0.7
       convex-test:
-        specifier: 0.0.74
-        version: 0.0.74(convex@1.51.0(react@19.3.1))
+        specifier: 0.0.75
+        version: 0.0.75(convex@1.51.0(react@19.3.1))
       jsdom:
         specifier: 31.0.1
         version: 31.0.1
@@ -801,8 +801,8 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
-  convex-test@0.0.74:
-    resolution: {integrity: sha512-Z9roEKRvSyggZiWHik0wUP24lairo5vRk2Qgw1sqEY4dJ/vFFDbJG2NdSPATDiEdKAq5qfUk6kZTissHYbM19A==}
+  convex-test@0.0.75:
+    resolution: {integrity: sha512-gdy/Hbk9ElB0cc8YDMUsNaI1b1sJlCAkgg1e8nUAzMHuJQWjrErs53IFsyWHene+Grbhi/S9s8lK5WE81/CFoA==}
     peerDependencies:
       convex: ^1.46.0
 
@@ -1670,7 +1670,7 @@ snapshots:
       tree-kill: 1.2.2
       yargs: 18.0.0
 
-  convex-test@0.0.74(convex@1.51.0(react@19.3.1)):
+  convex-test@0.0.75(convex@1.51.0(react@19.3.1)):
     dependencies:
       convex: 1.51.0(react@19.3.1)
 
