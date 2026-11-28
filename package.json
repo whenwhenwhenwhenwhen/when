@@ -25,14 +25,14 @@
     "luxon": "3.7.2",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "react-router": "8.5.2"
+    "react-router": "8.5.3"
   },
   "devDependencies": {
     "@edge-runtime/vm": "5.0.0",
     "@testing-library/react": "16.3.3",
     "@types/luxon": "3.7.6",
     "@types/node": "26.6.7",
-    "@types/react": "19.3.0",
+    "@types/react": "19.3.2",
     "@types/react-dom": "19.3.0",
     "concurrently": "10.0.7",
     "convex-test": "0.0.75",
